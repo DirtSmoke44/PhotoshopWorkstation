@@ -25,15 +25,9 @@ pip install PyQt6 PyQt6-Qt6 PyQt6-sip PyQt6-Multimedia Pillow pywin32
 
 python -c "import PyQt6; from PyQt6.QtMultimedia import QMediaPlayer; from PIL import Image; import win32com.client; print('OK')"
 
-Запускай простой двойным кликом по .py файлу или через PyCharm/командную строку:
-
-python Photoshop_workstation_python.py
-
 команда для преобразования в 1 exe файл:
 
 ПОКА ИСПОЛЬЗУЕМ ЭТО - pyinstaller --noconsole --onefile --name="Photoshop_Workstation" Photoshop_workstation_python.py
 
-ЭТО ПОКА НЕ ИСПОЛЬЗУЙ! - pyinstaller --noconfirm --clean --onefile --windowed --name "PhotoshopWorkStationPlus" --hidden-import=win32com.client --hidden-import=pythoncom --hidden-import=pywintypes --collect-submodules win32com --collect-all PyQt6 Photoshop_workstation_python.py
-
-ЗАПУСК программы: py Photoshop_workstation_python.py
+ЗАПУСК программы: python Photoshop_workstation_python.py
 

@@ -954,7 +954,7 @@ class RemoveBgWorker(QThread):
 
             valid_ext = (".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tiff")
 
-            # 1) Собираем список всех картинок в папке
+            # 1) Все картинки в папке
             all_images = []
             for f in os.listdir(self.folder_path):
                 full = os.path.join(self.folder_path, f)
@@ -964,25 +964,29 @@ class RemoveBgWorker(QThread):
                     continue
                 all_images.append(f)
 
-            # 2) Определяем, для каких оригиналов уже есть _no_bg-результат
-            #    (base_name без учёта регистра и расширения)
+            # 2) Извлекаем "чистые" базовые имена оригиналов,
+            #    для которых уже есть _no_bg-результат.
+            #    Считаем оригиналом всё, что стоит до '_no_bg'
+            #    (с учётом возможных '_no_bg_1', '_no_bg_2' и т.п.)
             already_done_bases = set()
             for f in all_images:
                 base_no_ext = os.path.splitext(f)[0]
-                if base_no_ext.lower().endswith("_no_bg"):
-                    original_base = base_no_ext[:-len("_no_bg")]
+                low = base_no_ext.lower()
+                idx = low.find("_no_bg")
+                if idx > 0:  # суффикс найден, и он НЕ в начале имени
+                    original_base = base_no_ext[:idx]
                     already_done_bases.add(original_base.lower())
 
-            # 3) Формируем финальный список — пропускаем:
-            #    - сами _no_bg-файлы
-            #    - оригиналы, для которых уже есть _no_bg-результат
+            # 3) Финальный список
             files = []
             for f in all_images:
                 base_no_ext = os.path.splitext(f)[0]
-                low_base = base_no_ext.lower()
-                if low_base.endswith("_no_bg"):
+                low = base_no_ext.lower()
+                # Пропускаем сами результаты (_no_bg и всё, что после)
+                if "_no_bg" in low:
                     continue
-                if low_base in already_done_bases:
+                # Пропускаем оригиналы, для которых результат уже есть
+                if low in already_done_bases:
                     continue
                 files.append(os.path.join(self.folder_path, f))
 
@@ -1004,7 +1008,7 @@ class RemoveBgWorker(QThread):
             )
 
             try:
-                session = new_session("u2net")
+                session = new_session("birefnet-portrait")
             except Exception as e:
                 self.log_signal.emit(f"__ERROR__Не удалось загрузить модель: {e}")
                 self.finished_signal.emit(0, "Удаление фона")
