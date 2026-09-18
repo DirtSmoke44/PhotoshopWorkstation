@@ -7,6 +7,9 @@ pip install pyinstaller
 pip install Pillow
 pip install pywin32
 pip install PyQt6
+pip install rembg onnxruntime pillow
+
+py -m pip install rembg onnxruntime
 
 
 pip install PyQt6 pywin32 Pillow - сразу 3 библиотеки устанавливаеты

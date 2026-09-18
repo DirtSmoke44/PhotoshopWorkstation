@@ -340,7 +340,6 @@ ACTION_PRESETS = [
     ("BRIGHT +0.15", "BRIGHT ", "+0.15 bright", "bright_plus"),
     ("BRIGHT -0.15", "BRIGHT ", "-0.15 bright", "bright_minus"),
     ("BLUR фон", "BACKGROUND_BLUR", "select_inverse_blursurface", "blur_bg"),
-    # ★★★ ДОБАВЛЕННЫЕ КНОПКИ ЗАМЕНЫ РАМОК ★★★
     ("Заменить рамку 2030", "ЗАМЕНА РАМОК", "ЗАМЕНА РАМКИ 2030", "replace_2030"),
     ("Заменить рамку 1520", "ЗАМЕНА РАМОК", "ЗАМЕНА РАМКИ 1520", "replace_1520"),
 ]
@@ -356,7 +355,6 @@ def get_preset_button_style(color_key):
         "add_frames": ("#103A18", "#88FFA8", "#185A28", "#B0FFC8", "#58E878"),
         "raw_export": ("#10243A", "#7CC4FF", "#183A5A", "#A8D8FF", "#58A8E8"),
         "blur_bg": ("#2A103A", "#D89BFF", "#3A185A", "#E8B7FF", "#B87BE8"),
-        # Новые цвета для кнопок замены рамок
         "replace_2030": ("#0A2A2A", "#00E5FF", "#104040", "#80F0FF", "#00B8D4"),
         "replace_1520": ("#3A0A1A", "#FF4081", "#5A1028", "#FF80AB", "#E91E63"),
     }
@@ -511,15 +509,13 @@ class PixelComboBox(QComboBox):
         )
 
     def showPopup(self):
-        # Перед показом попапа вычисляем, сколько элементов реально поместится
-        # под комбобоксом до низа экрана, и ограничиваем maxVisibleItems.
         try:
             screen = self.screen() or QApplication.primaryScreen()
             if screen is not None:
                 avail = screen.availableGeometry()
                 combo_bottom_y = self.mapToGlobal(QPoint(0, self.height())).y()
                 space_below = avail.bottom() - combo_bottom_y
-                item_height = 40  # примерно высота одного item с padding
+                item_height = 40
                 max_items_below = max(3, (space_below - 20) // item_height)
                 self.setMaxVisibleItems(int(max_items_below))
         except Exception:
@@ -527,7 +523,6 @@ class PixelComboBox(QComboBox):
 
         super().showPopup()
 
-        # Устанавливаем стиль попапу безопасно (без move и setFixedHeight)
         try:
             popup = self.view().window()
             if popup is not None:
@@ -537,6 +532,7 @@ class PixelComboBox(QComboBox):
                 )
         except Exception:
             pass
+
 
 # ----------------------------------------------------------------------
 # ДИАЛОГ ВЫБОРА PSD-ФАЙЛОВ
@@ -707,7 +703,7 @@ class BatchActionsDialog(QDialog):
         self.presets_grid = QGridLayout()
         self.presets_grid.setSpacing(8)
         self.preset_buttons = []
-        
+
         for i, preset in enumerate(ACTION_PRESETS):
             preset_name = preset[0]
             p_set = preset[1]
@@ -724,7 +720,7 @@ class BatchActionsDialog(QDialog):
             col = i % 3
             self.presets_grid.addWidget(p_btn, row, col)
             self.preset_buttons.append((p_btn, color_key))
-            
+
         layout.addLayout(self.presets_grid)
         layout.addSpacing(6)
 
@@ -812,13 +808,11 @@ class BatchActionsDialog(QDialog):
 
         self.input_set.textChanged.connect(self._validate)
         self.input_actions.textChanged.connect(self._validate)
-        
-        # Первоначальная проверка и обновление кнопок
+
         self._update_buttons_state()
         self._validate()
 
     def _get_frame_flags(self):
-        """Возвращает (has_1520, has_2030, has_any)"""
         if self.main_window is None:
             return False, False, False
         try:
@@ -829,24 +823,19 @@ class BatchActionsDialog(QDialog):
             return False, False, False
 
     def _update_buttons_state(self):
-        """Обновляет активность кнопок в зависимости от выбранных галочек в главном окне."""
         has_1520, has_2030, has_any = self._get_frame_flags()
-        
+
         for btn, color_key in self.preset_buttons:
             if color_key in ("replace_2030",):
-                # Только для 2030
                 btn.setEnabled(has_2030)
             elif color_key in ("replace_1520",):
-                # Только для 1520
                 btn.setEnabled(has_1520)
             else:
-                # Все остальные (RAW, BRIGHT, EXPORT, BLUR) - только если выбрана хотя бы одна папка
                 btn.setEnabled(has_any)
 
     def _apply_preset(self, preset_set, preset_actions, color_key):
         has_1520, has_2030, has_any = self._get_frame_flags()
-        
-        # Проверка на возможность применения пресета
+
         allowed = False
         if color_key == "replace_2030":
             allowed = has_2030
@@ -854,7 +843,7 @@ class BatchActionsDialog(QDialog):
             allowed = has_1520
         else:
             allowed = has_any
-            
+
         if not allowed:
             try:
                 if self.main_window is not None:
@@ -916,7 +905,7 @@ class BatchActionsDialog(QDialog):
     def _validate(self):
         set_ok = bool(self.input_set.toPlainText().strip())
         act_ok = bool(self.input_actions.toPlainText().strip())
-        
+
         if set_ok and act_ok:
             self.lbl_status.setText("✅ Готово к запуску")
             self.lbl_status.setStyleSheet(
@@ -935,6 +924,144 @@ class BatchActionsDialog(QDialog):
         self.fast_mode = self.chk_fast.isChecked()
         self.auto_alert = self.chk_alert.isChecked()
         self.accept()
+
+
+# ----------------------------------------------------------------------
+# ПОТОК УДАЛЕНИЯ ФОНА (REMBG)
+# ----------------------------------------------------------------------
+class RemoveBgWorker(QThread):
+    progress_signal = pyqtSignal(int, int)
+    file_status_signal = pyqtSignal(str, str)
+    log_signal = pyqtSignal(str)
+    finished_signal = pyqtSignal(int, str)
+
+    def __init__(self, folder_path):
+        super().__init__()
+        self.folder_path = folder_path
+        self.is_cancelled = False
+
+    def run(self):
+        try:
+            try:
+                from rembg import remove, new_session
+            except ImportError:
+                self.log_signal.emit(
+                    "__ERROR__Библиотека 'rembg' не установлена!\n"
+                    "Установите её командой: pip install rembg onnxruntime"
+                )
+                self.finished_signal.emit(0, "Удаление фона")
+                return
+
+            valid_ext = (".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tiff")
+
+            # 1) Собираем список всех картинок в папке
+            all_images = []
+            for f in os.listdir(self.folder_path):
+                full = os.path.join(self.folder_path, f)
+                if not os.path.isfile(full):
+                    continue
+                if not f.lower().endswith(valid_ext):
+                    continue
+                all_images.append(f)
+
+            # 2) Определяем, для каких оригиналов уже есть _no_bg-результат
+            #    (base_name без учёта регистра и расширения)
+            already_done_bases = set()
+            for f in all_images:
+                base_no_ext = os.path.splitext(f)[0]
+                if base_no_ext.lower().endswith("_no_bg"):
+                    original_base = base_no_ext[:-len("_no_bg")]
+                    already_done_bases.add(original_base.lower())
+
+            # 3) Формируем финальный список — пропускаем:
+            #    - сами _no_bg-файлы
+            #    - оригиналы, для которых уже есть _no_bg-результат
+            files = []
+            for f in all_images:
+                base_no_ext = os.path.splitext(f)[0]
+                low_base = base_no_ext.lower()
+                if low_base.endswith("_no_bg"):
+                    continue
+                if low_base in already_done_bases:
+                    continue
+                files.append(os.path.join(self.folder_path, f))
+
+            if not files:
+                self.log_signal.emit(
+                    "__WARN__Нет новых изображений для обработки. "
+                    "Все файлы уже имеют версию с удалённым фоном."
+                )
+                self.finished_signal.emit(0, "Удаление фона")
+                return
+
+            total = len(files)
+            self.log_signal.emit("--- УДАЛЕНИЕ ФОНА (Rembg) ---")
+            self.log_signal.emit(f"__INFO__Папка: {self.folder_path}")
+            self.log_signal.emit(f"__INFO__Файлов к обработке: {total}")
+            self.log_signal.emit(
+                "__INFO__Загрузка модели AI... (при первом запуске "
+                "может занять 1-2 минуты)"
+            )
+
+            try:
+                session = new_session("u2net")
+            except Exception as e:
+                self.log_signal.emit(f"__ERROR__Не удалось загрузить модель: {e}")
+                self.finished_signal.emit(0, "Удаление фона")
+                return
+
+            self.log_signal.emit("__OK__Модель загружена. Начинаю обработку...")
+
+            processed = 0
+            errors = 0
+
+            for idx, img_path in enumerate(files, start=1):
+                if self.is_cancelled:
+                    break
+                file_name = os.path.basename(img_path)
+                self.file_status_signal.emit(
+                    f"Удаление фона [{idx}/{total}]", file_name
+                )
+                try:
+                    with open(img_path, "rb") as f:
+                        input_data = f.read()
+
+                    output_data = remove(input_data, session=session)
+
+                    base_name = os.path.splitext(file_name)[0]
+                    out_name = base_name + "_no_bg.png"
+                    out_path = os.path.join(self.folder_path, out_name)
+
+                    with open(out_path, "wb") as f:
+                        f.write(output_data)
+
+                    processed += 1
+                    self.log_signal.emit(
+                        f"[{idx}/{total}] ✅ Готово: {out_name}"
+                    )
+                except Exception as e:
+                    errors += 1
+                    self.log_signal.emit(
+                        f"[{idx}/{total}] __ERROR__Ошибка с {file_name}: {e}"
+                    )
+                self.progress_signal.emit(idx, total)
+
+            if not self.is_cancelled:
+                self.log_signal.emit(
+                    f"__OK__Итог: обработано {processed} из {total}, "
+                    f"ошибок: {errors}"
+                )
+                self.finished_signal.emit(processed, "Удаление фона")
+
+        except Exception as fatal:
+            self.log_signal.emit(f"__ERROR__КРИТИЧЕСКАЯ ОШИБКА: {fatal}")
+            try:
+                self.finished_signal.emit(0, "Удаление фона")
+            except Exception:
+                pass
+
+    def cancel(self):
+        self.is_cancelled = True
 
 
 # ----------------------------------------------------------------------
@@ -1172,7 +1299,7 @@ class AboutDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(15)
-        title_lbl = QLabel("Photoshop WorkStation+ (v4.1)")
+        title_lbl = QLabel("Photoshop WorkStation+ (v4.2)")
         title_lbl.setFont(QFont("Segoe UI", 14, QFont.Weight.Bold))
         title_lbl.setStyleSheet("color: #00BFFF; border: none;")
         title_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -1183,7 +1310,9 @@ class AboutDialog(QDialog):
         пакетной обработки школьных фотографий, работы с RAW-фильтрами,
         наложения рамок, интеграции QR-кодов и быстрого экспорта
         через Adobe Photoshop.</p>
-        <p><b>Версия:</b> v4.1</p>
+        <p><b>Новое в v4.2:</b> удаление фона с помощью AI-нейросети Rembg
+        прямо из интерфейса программы (без Photoshop).</p>
+        <p><b>Версия:</b> v4.2</p>
         <p><b>Год выпуска:</b> 2026</p>
         <p><b>Разработчик:</b> DirtSmoke44 & JohnnySuon</p>
         """
@@ -1199,7 +1328,7 @@ class AboutDialog(QDialog):
         btn_close = QPushButton("Закрыть")
         btn_close.setStyleSheet(
             "QPushButton { background-color: #007ACC; color: white;"
-            "border: none; border-radius: 8px; padding: 8px;"
+            "border: none; border-radius: 15px; padding: 8px;"
             "font-weight: bold; font-size: 12px; }"
             "QPushButton:hover { background-color: #005999; }"
         )
@@ -1698,7 +1827,7 @@ def save_config(data):
 
 
 # ----------------------------------------------------------------------
-# ПОТОК ОБРАБОТКИ
+# ПОТОК ОБРАБОТКИ (Photoshop)
 # ----------------------------------------------------------------------
 class WorkerThread(QThread):
     progress_signal = pyqtSignal(int, int)
@@ -2112,7 +2241,7 @@ class ModernPhotoshopWorkstation(QMainWindow):
         self.frame_1520_path = ""
         self.frame_2030_path = ""
         self.ambient_video_path = ""
-        self.setWindowTitle("Photoshop WorkStation+ v4.1")
+        self.setWindowTitle("Photoshop WorkStation+ v4.2")
         self.setFixedSize(1480, 760)
 
         icon_path = resource_path("iconapp_Photoshop Workstation+.png")
@@ -2148,6 +2277,7 @@ class ModernPhotoshopWorkstation(QMainWindow):
         self.last_script_used = None
         self.last_school_used = None
         self.worker = None
+        self.remove_bg_worker = None
 
         self.media_player_ambient = None
         self.audio_output_ambient = None
@@ -2184,17 +2314,12 @@ class ModernPhotoshopWorkstation(QMainWindow):
         self.move(x, y)
 
     def get_school_folders(self):
-        """
-        Возвращает список папок школ, отсортированный по дате последнего изменения
-        (от самых новых к самым старым).
-        """
         if os.path.exists(self.default_schools_dir):
             try:
                 folders = [
                     f for f in os.listdir(self.default_schools_dir)
                     if os.path.isdir(os.path.join(self.default_schools_dir, f))
                 ]
-                # Сортируем по времени последнего изменения (st_mtime), новые сверху
                 folders.sort(
                     key=lambda name: os.path.getmtime(
                         os.path.join(self.default_schools_dir, name)
@@ -2559,6 +2684,8 @@ class ModernPhotoshopWorkstation(QMainWindow):
              "batch_actions", "25_batch_run_action.jsx", "4. BATCH ACTIONS", True),
             ("5. ВСТАВКА РАМОК (ДОБАВИТЬ РАМКИ) (24_AddFramesSmart)",
              "smart_frames", "24_AddFramesSmart.jsx", "5. Умная вставка рамок", True),
+            ("6. УДАЛИТЬ ФОН (ВЫРЕЗАТЬ ОБЪЕКТ)",
+             "remove_bg", "", "6. Удалить фон", True),
         ]
 
         script_palettes = [
@@ -2567,6 +2694,7 @@ class ModernPhotoshopWorkstation(QMainWindow):
             {"colors": [QColor(70, 190, 130), QColor(60, 200, 170), QColor(90, 180, 110), QColor(120, 190, 90), QColor(70, 190, 130)], "speed": 6},
             {"colors": [QColor(170, 80, 200), QColor(200, 80, 170), QColor(210, 90, 130), QColor(160, 70, 190), QColor(170, 80, 200)], "speed": 4},
             {"colors": [QColor(220, 190, 70), QColor(210, 160, 60), QColor(230, 200, 90), QColor(190, 150, 50), QColor(220, 190, 70)], "speed": 5},
+            {"colors": [QColor(60, 220, 200), QColor(80, 200, 230), QColor(100, 180, 240), QColor(70, 160, 210), QColor(60, 220, 200)], "speed": 5},
         ]
 
         self.active_script_border = None
@@ -2577,7 +2705,7 @@ class ModernPhotoshopWorkstation(QMainWindow):
             btn = QPushButton(text)
             btn.setStyleSheet(btn_style_glass)
             btn.setMinimumHeight(38)
-            if mode == "create_folders" or mode == "qr":
+            if mode in ("create_folders", "qr", "remove_bg"):
                 btn.setEnabled(True)
             else:
                 btn.setEnabled(False)
@@ -2785,6 +2913,19 @@ class ModernPhotoshopWorkstation(QMainWindow):
             self.open_create_folders_dialog()
             return
 
+        if mode == "remove_bg":
+            for wrap in self.script_border_widgets:
+                wrap.stop_border()
+            border_wrap.start_border()
+            self.active_script_border = border_wrap
+            self.selected_script_mode = mode
+            self.selected_script_title = btn.property("title")
+            self.selected_script_index = btn_index
+            self.qr_panel.setVisible(False)
+            self.frame_sub.setVisible(True)
+            self.open_remove_bg_dialog()
+            return
+
         if mode == "qr":
             for wrap in self.script_border_widgets:
                 wrap.stop_border()
@@ -2903,6 +3044,45 @@ class ModernPhotoshopWorkstation(QMainWindow):
             self.qr_folder_path = dlg.qr_folder_path
             self._update_qr_labels()
 
+    def open_remove_bg_dialog(self):
+        """Открывает диалог выбора папки и запускает удаление фона."""
+        start_dir = self.selected_folder or self.default_schools_dir
+        if not os.path.isdir(start_dir):
+            start_dir = ""
+        folder = QFileDialog.getExistingDirectory(
+            self,
+            "Выберите папку с изображениями (JPG/JPEG/PNG) для удаления фона",
+            start_dir,
+        )
+        if not folder:
+            self._reset_script_selection()
+            return
+
+        self.clear_log()
+        self.append_log(f"__INFO__Выбрана папка: {folder}")
+
+        self.pixel_icon.start()
+        self.progress_bar.start_anim()
+        self.progress_bar.setValue(0)
+
+        self.remove_bg_worker = RemoveBgWorker(folder)
+        self.remove_bg_worker.progress_signal.connect(self.on_worker_progress)
+        self.remove_bg_worker.file_status_signal.connect(self.on_file_status_update)
+        self.remove_bg_worker.log_signal.connect(self.append_log)
+        self.remove_bg_worker.finished_signal.connect(self.on_remove_bg_finished)
+        self.remove_bg_worker.start()
+
+    def on_remove_bg_finished(self, processed_count, script_title):
+        self.pixel_icon.stop()
+        self.progress_bar.stop_anim()
+        self.lbl_anim_status.setText("Готово!")
+        self.progress_bar.setValue(100)
+        self.append_log("__INFO__========================================")
+        self.append_log(f"__OK__Завершено: {script_title}")
+        self.append_log(f"__OK__Обработано файлов: {processed_count}")
+        self.append_log("__INFO__========================================")
+        QTimer.singleShot(3000, self._restart_icon_after_finish)
+
     def append_log(self, text):
         safe_text = text
         if safe_text.startswith("__OK__"):
@@ -2942,14 +3122,14 @@ class ModernPhotoshopWorkstation(QMainWindow):
             self.combo_border.start_border()
             for btn in self.script_buttons:
                 mode = btn.property("mode")
-                if mode != "create_folders" and mode != "qr":
+                if mode not in ("create_folders", "qr", "remove_bg"):
                     btn.setEnabled(True)
         else:
             if hasattr(self, "combo_border"):
                 self.combo_border.stop_border()
             for btn in self.script_buttons:
                 mode = btn.property("mode")
-                if mode != "create_folders" and mode != "qr":
+                if mode not in ("create_folders", "qr", "remove_bg"):
                     btn.setEnabled(False)
             self.selected_school_name = ""
             self.selected_folder = ""
@@ -3115,6 +3295,8 @@ class ModernPhotoshopWorkstation(QMainWindow):
     def cancel_process(self):
         if self.worker and self.worker.isRunning():
             self.worker.cancel()
+        if self.remove_bg_worker and self.remove_bg_worker.isRunning():
+            self.remove_bg_worker.cancel()
         self._kill_photoshop()
         self.pixel_icon.stop()
         self.progress_bar.stop_anim()
@@ -3127,6 +3309,9 @@ class ModernPhotoshopWorkstation(QMainWindow):
         if self.worker and self.worker.isRunning():
             self.worker.cancel()
             self.worker.wait(3000)
+        if self.remove_bg_worker and self.remove_bg_worker.isRunning():
+            self.remove_bg_worker.cancel()
+            self.remove_bg_worker.wait(3000)
         self._kill_photoshop()
         event.accept()
 
