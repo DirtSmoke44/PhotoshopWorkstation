@@ -40,16 +40,12 @@ def resource_path(relative_path):
 
 # ----------------------------------------------------------------------
 # ★★★ TKINTER-ДИАЛОГ ВВОДА НОМЕРА ШКОЛЫ ★★★
-# Тёмный фон + закруглённые кнопки в стиле приложения.
-# Ввод и вставка работают на любой раскладке.
-# Окно строго по центру экрана (Win32 API + DPI aware).
 # ----------------------------------------------------------------------
 def tkinter_ask_school_number(parent_title="Создание структуры папок"):
     import tkinter as tk
 
     result = {"value": None}
 
-    # DPI awareness
     try:
         import ctypes
         ctypes.windll.shcore.SetProcessDpiAwareness(1)
@@ -64,13 +60,10 @@ def tkinter_ask_school_number(parent_title="Создание структуры 
     win_w = 520
     win_h = 260
 
-    # Сначала показываем окно с произвольной позицией,
-    # чтобы tkinter успел инициализировать графику.
     root.geometry(f"{win_w}x{win_h}+0+0")
     root.update_idletasks()
     root.update()
 
-    # ★ Получаем физические размеры экрана через Win32 API.
     screen_w = win_w
     screen_h = win_h
     try:
@@ -225,18 +218,12 @@ def tkinter_ask_school_number(parent_title="Создание структуры 
         root.destroy()
         return "break"
 
-    # ── ЗАКРУГЛЁННЫЕ КНОПКИ ──────────────────────────────────────────
     btn_row = tk.Frame(container, bg=BG)
     btn_row.pack(fill=tk.X)
 
     def make_rounded_button(parent, text, fill_color, text_color,
                             hover_color, command,
                             width=210, height=44, radius=16):
-        """
-        Кнопка с настоящими закруглёнными углами.
-        Рисуется через 4 дуги (create_arc) + 2 прямоугольника.
-        Без обводки, полностью однотонная.
-        """
         canvas = tk.Canvas(
             parent, width=width, height=height,
             bg=BG, highlightthickness=0, bd=0,
@@ -352,7 +339,6 @@ ACTION_PRESETS = [
     ("Export JPG", "ExportJPG", "ExportJPG", "export_jpg"),
     ("BRIGHT +0.15", "BRIGHT ", "+0.15 bright", "bright_plus"),
     ("BRIGHT -0.15", "BRIGHT ", "-0.15 bright", "bright_minus"),
-    ("QR CODE вставка", "QR_add", "QR_fast", "qr_code"),
     ("BLUR фон", "BACKGROUND_BLUR", "select_inverse_blursurface", "blur_bg"),
     # ★★★ ДОБАВЛЕННЫЕ КНОПКИ ЗАМЕНЫ РАМОК ★★★
     ("Заменить рамку 2030", "ЗАМЕНА РАМОК", "ЗАМЕНА РАМКИ 2030", "replace_2030"),
@@ -395,6 +381,11 @@ def get_preset_button_style(color_key):
         QPushButton:pressed {{
             background-color: {pressed_bg};
             border: 1px solid {fg};
+        }}
+        QPushButton:disabled {{
+            background-color: #1A1A1A;
+            color: #555555;
+            border: 2px solid #2A2A2A;
         }}
     """
 
@@ -520,20 +511,32 @@ class PixelComboBox(QComboBox):
         )
 
     def showPopup(self):
-        super().showPopup()
-        popup = self.view().parentWidget()
-        if popup:
-            view = self.view()
-            item_count = view.model().rowCount()
-            item_height = 32
-            max_height = 600
-            calculated_height = min(item_count * item_height + 12, max_height)
-            popup.setFixedHeight(calculated_height)
-            popup.setStyleSheet(
-                "QFrame { background-color: #1E2229; border: 1px solid #3A4150;"
-                "border-radius: 18px; }"
-            )
+        # Перед показом попапа вычисляем, сколько элементов реально поместится
+        # под комбобоксом до низа экрана, и ограничиваем maxVisibleItems.
+        try:
+            screen = self.screen() or QApplication.primaryScreen()
+            if screen is not None:
+                avail = screen.availableGeometry()
+                combo_bottom_y = self.mapToGlobal(QPoint(0, self.height())).y()
+                space_below = avail.bottom() - combo_bottom_y
+                item_height = 40  # примерно высота одного item с padding
+                max_items_below = max(3, (space_below - 20) // item_height)
+                self.setMaxVisibleItems(int(max_items_below))
+        except Exception:
+            pass
 
+        super().showPopup()
+
+        # Устанавливаем стиль попапу безопасно (без move и setFixedHeight)
+        try:
+            popup = self.view().window()
+            if popup is not None:
+                popup.setStyleSheet(
+                    "QFrame { background-color: #1E2229; border: 1px solid #3A4150;"
+                    "border-radius: 18px; }"
+                )
+        except Exception:
+            pass
 
 # ----------------------------------------------------------------------
 # ДИАЛОГ ВЫБОРА PSD-ФАЙЛОВ
@@ -668,7 +671,7 @@ class BatchActionsDialog(QDialog):
     def __init__(self, parent=None, default_set="", default_actions=""):
         super().__init__(parent)
         self.setWindowTitle("БЫСТРАЯ ПАКЕТНАЯ ОБРАБОТКА")
-        self.setFixedSize(720, 760) # Чуть увеличили высоту, чтобы влезли новые кнопки
+        self.setFixedSize(720, 760)
         self.setStyleSheet("QDialog { background-color: #161616; color: #FFFFFF; }")
         self.action_set = default_set
         self.actions_text = default_actions
@@ -701,8 +704,10 @@ class BatchActionsDialog(QDialog):
         )
         layout.addWidget(lbl_presets)
 
-        presets_grid = QGridLayout()
-        presets_grid.setSpacing(8)
+        self.presets_grid = QGridLayout()
+        self.presets_grid.setSpacing(8)
+        self.preset_buttons = []
+        
         for i, preset in enumerate(ACTION_PRESETS):
             preset_name = preset[0]
             p_set = preset[1]
@@ -717,8 +722,10 @@ class BatchActionsDialog(QDialog):
             )
             row = i // 3
             col = i % 3
-            presets_grid.addWidget(p_btn, row, col)
-        layout.addLayout(presets_grid)
+            self.presets_grid.addWidget(p_btn, row, col)
+            self.preset_buttons.append((p_btn, color_key))
+            
+        layout.addLayout(self.presets_grid)
         layout.addSpacing(6)
 
         lbl_set = QLabel("Введите Action Set:")
@@ -805,32 +812,62 @@ class BatchActionsDialog(QDialog):
 
         self.input_set.textChanged.connect(self._validate)
         self.input_actions.textChanged.connect(self._validate)
+        
+        # Первоначальная проверка и обновление кнопок
+        self._update_buttons_state()
         self._validate()
 
-    def _frames_selected(self):
+    def _get_frame_flags(self):
+        """Возвращает (has_1520, has_2030, has_any)"""
         if self.main_window is None:
-            return True
+            return False, False, False
         try:
-            return (
-                self.main_window.chk_1520.isChecked()
-                or self.main_window.chk_2030.isChecked()
-            )
+            h1520 = self.main_window.chk_1520.isChecked()
+            h2030 = self.main_window.chk_2030.isChecked()
+            return h1520, h2030, (h1520 or h2030)
         except Exception:
-            return True
+            return False, False, False
+
+    def _update_buttons_state(self):
+        """Обновляет активность кнопок в зависимости от выбранных галочек в главном окне."""
+        has_1520, has_2030, has_any = self._get_frame_flags()
+        
+        for btn, color_key in self.preset_buttons:
+            if color_key in ("replace_2030",):
+                # Только для 2030
+                btn.setEnabled(has_2030)
+            elif color_key in ("replace_1520",):
+                # Только для 1520
+                btn.setEnabled(has_1520)
+            else:
+                # Все остальные (RAW, BRIGHT, EXPORT, BLUR) - только если выбрана хотя бы одна папка
+                btn.setEnabled(has_any)
 
     def _apply_preset(self, preset_set, preset_actions, color_key):
-        if not self._frames_selected():
+        has_1520, has_2030, has_any = self._get_frame_flags()
+        
+        # Проверка на возможность применения пресета
+        allowed = False
+        if color_key == "replace_2030":
+            allowed = has_2030
+        elif color_key == "replace_1520":
+            allowed = has_1520
+        else:
+            allowed = has_any
+            
+        if not allowed:
             try:
                 if self.main_window is not None:
-                    self.main_window.append_log(
-                        "__ERROR__Пресет не применён: не выбраны папки "
-                        "1520 или 2030! Поставьте галочку под школой."
-                    )
+                    if color_key == "replace_2030":
+                        msg = "Пресет 'Заменить рамку 2030' доступен только при выборе папки 2030!"
+                    elif color_key == "replace_1520":
+                        msg = "Пресет 'Заменить рамку 1520' доступен только при выборе папки 1520!"
+                    else:
+                        msg = "Пресет не применён: не выбраны папки 1520 или 2030! Поставьте галочку под школой."
+                    self.main_window.append_log(f"__ERROR__{msg}")
             except Exception:
                 pass
-            self.lbl_status.setText(
-                "❌ Сначала отметьте 1520 или 2030 под школой!"
-            )
+            self.lbl_status.setText("❌ Выберите подходящие папки в главном окне!")
             self.lbl_status.setStyleSheet(
                 "color: #FF5555; border: none; font-size: 11px; font-weight: bold;"
             )
@@ -879,6 +916,7 @@ class BatchActionsDialog(QDialog):
     def _validate(self):
         set_ok = bool(self.input_set.toPlainText().strip())
         act_ok = bool(self.input_actions.toPlainText().strip())
+        
         if set_ok and act_ok:
             self.lbl_status.setText("✅ Готово к запуску")
             self.lbl_status.setStyleSheet(
@@ -2146,13 +2184,24 @@ class ModernPhotoshopWorkstation(QMainWindow):
         self.move(x, y)
 
     def get_school_folders(self):
+        """
+        Возвращает список папок школ, отсортированный по дате последнего изменения
+        (от самых новых к самым старым).
+        """
         if os.path.exists(self.default_schools_dir):
             try:
                 folders = [
                     f for f in os.listdir(self.default_schools_dir)
                     if os.path.isdir(os.path.join(self.default_schools_dir, f))
                 ]
-                return sorted(folders)
+                # Сортируем по времени последнего изменения (st_mtime), новые сверху
+                folders.sort(
+                    key=lambda name: os.path.getmtime(
+                        os.path.join(self.default_schools_dir, name)
+                    ),
+                    reverse=True
+                )
+                return folders
             except Exception as e:
                 print(f"Ошибка чтения директории 2026: {e}")
         return []
@@ -2508,7 +2557,7 @@ class ModernPhotoshopWorkstation(QMainWindow):
              "qr", "23_QR_add_FRAME2030.jsx", "3. Импорт QR-кодов", True),
             ("4. БЫСТРАЯ ПАКЕТНАЯ ОБРАБОТКА (25_batch_run_action)",
              "batch_actions", "25_batch_run_action.jsx", "4. BATCH ACTIONS", True),
-            ("5. УМНАЯ ВСТАВКА РАМОК (ПРОСТО ДОБАВИТЬ РАМКИ) (24_AddFramesSmart)",
+            ("5. ВСТАВКА РАМОК (ДОБАВИТЬ РАМКИ) (24_AddFramesSmart)",
              "smart_frames", "24_AddFramesSmart.jsx", "5. Умная вставка рамок", True),
         ]
 
