@@ -1172,7 +1172,7 @@ class AboutDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(15)
-        title_lbl = QLabel("Photoshop WorkStation+ (v4.0)")
+        title_lbl = QLabel("Photoshop WorkStation+ (v4.1)")
         title_lbl.setFont(QFont("Segoe UI", 14, QFont.Weight.Bold))
         title_lbl.setStyleSheet("color: #00BFFF; border: none;")
         title_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -1183,7 +1183,7 @@ class AboutDialog(QDialog):
         пакетной обработки школьных фотографий, работы с RAW-фильтрами,
         наложения рамок, интеграции QR-кодов и быстрого экспорта
         через Adobe Photoshop.</p>
-        <p><b>Версия:</b> v4.0</p>
+        <p><b>Версия:</b> v4.1</p>
         <p><b>Год выпуска:</b> 2026</p>
         <p><b>Разработчик:</b> DirtSmoke44 & JohnnySuon</p>
         """
@@ -2112,7 +2112,7 @@ class ModernPhotoshopWorkstation(QMainWindow):
         self.frame_1520_path = ""
         self.frame_2030_path = ""
         self.ambient_video_path = ""
-        self.setWindowTitle("Photoshop WorkStation+ v4.0")
+        self.setWindowTitle("Photoshop WorkStation+ v4.1")
         self.setFixedSize(1480, 760)
 
         icon_path = resource_path("iconapp_Photoshop Workstation+.png")
@@ -2244,9 +2244,9 @@ class ModernPhotoshopWorkstation(QMainWindow):
         if self.ambient_video_path and os.path.exists(self.ambient_video_path):
             ambient_path = self.ambient_video_path
         if ambient_path is None:
-            for c in (resource_path("deathnote_light1vid.mp4"),
-                      os.path.join(os.getcwd(), "deathnote_light1vid.mp4"),
-                      os.path.join(os.path.dirname(sys.executable), "deathnote_light1vid.mp4")):
+            for c in (resource_path("ambient_vid1.mp4"),
+                      os.path.join(os.getcwd(), "ambient_vid1.mp4"),
+                      os.path.join(os.path.dirname(sys.executable), "ambient_vid1.mp4")):
                 if c and os.path.exists(c):
                     ambient_path = c
                     break
