@@ -23,7 +23,7 @@ python -c "import PyQt6; from PyQt6.QtMultimedia import QMediaPlayer; from PIL i
 
 команда для преобразования в 1 exe файл:
 
-ПОКА ИСПОЛЬЗУЕМ ЭТО - pyinstaller --noconsole --onefile --name="Photoshop_Workstation" Photoshop_workstation_python.py
+pyinstaller --noconsole --onefile --name="Photoshop_Workstation" Photoshop_workstation_python.py
 
 ЗАПУСК программы: python Photoshop_workstation_python.py
 

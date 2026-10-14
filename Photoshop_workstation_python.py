@@ -15,7 +15,7 @@ from PyQt6.QtCore import (
 from PyQt6.QtGui import (
     QFont, QPixmap, QImage, QCursor, QPainter, QColor,
     QLinearGradient, QPen, QConicalGradient, QDesktopServices,
-    QRadialGradient, QIcon, QBrush,
+    QRadialGradient, QIcon, QBrush, QPainterPath,
 )
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -34,6 +34,324 @@ def resource_path(relative_path):
     else:
         base_path = os.path.dirname(os.path.abspath(__file__))
     return os.path.join(base_path, relative_path)
+
+
+# ----------------------------------------------------------------------
+# ★★★ КНОПКА УПРАВЛЕНИЯ ОКНОМ В СТИЛЕ «ВЫХОД» / «ОТМЕНИТЬ ВЫПОЛНЕНИЕ» ★★★
+# ----------------------------------------------------------------------
+class CircleWindowButton(QPushButton):
+    """
+    Круглая кнопка управления окном с векторной HD-иконкой внутри.
+    Виды иконок: 'min', 'max', 'restore', 'close'.
+    """
+
+    def __init__(self, icon_kind="min", style_key="min", parent=None):
+        super().__init__(parent)
+        self.icon_kind = icon_kind
+        self.style_key = style_key
+
+        palettes = {
+            # Свернуть — фиолетовая
+            "min": {
+                "bg": "#2A103A", "fg": "#CC88FF",
+                "border": "#4A2A7A",
+                "hover_bg": "#3A185A", "hover_border": "#CC88FF",
+                "hover_fg": "#E0B7FF",
+                "pressed_bg": "#A855F7", "pressed_fg": "#1A0A2A",
+            },
+            # Развернуть — зелёная
+            "max": {
+                "bg": "#0E3A18", "fg": "#5CFF8A",
+                "border": "#1A5A28",
+                "hover_bg": "#1A5A28", "hover_border": "#5CFF8A",
+                "hover_fg": "#9CFFB8",
+                "pressed_bg": "#2ECC71", "pressed_fg": "#0A1A0E",
+            },
+            # Закрыть — красная (как «Выход»)
+            "close": {
+                "bg": "#3A0A1A", "fg": "#FF4081",
+                "border": "#5A1028",
+                "hover_bg": "#5A1028", "hover_border": "#FF4081",
+                "hover_fg": "#FF80AB",
+                "pressed_bg": "#E91E63", "pressed_fg": "#FFFFFF",
+            },
+        }
+        self.pal = palettes.get(style_key, palettes["min"])
+
+        self._icon_color = QColor(self.pal["fg"])
+        # ★ Круглая кнопка: одинаковая ширина и высота, меньше размер
+        self.setFixedSize(30, 30)
+        self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.setStyleSheet("QPushButton { background: transparent; border: none; }")
+        self.setFlat(True)
+
+    def set_icon_kind(self, kind):
+        self.icon_kind = kind
+        self.update()
+
+    def enterEvent(self, event):
+        self._icon_color = QColor(self.pal["hover_fg"])
+        self.update()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._icon_color = QColor(self.pal["fg"])
+        self.update()
+        super().leaveEvent(event)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        rect = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+
+        # ★ Половина меньшей стороны = идеальный круг
+        radius = min(rect.width(), rect.height()) / 2.0
+
+        if self.isDown():
+            bg = QColor(self.pal["pressed_bg"])
+            border = QColor(self.pal["hover_border"])
+            icon_color = QColor(self.pal["pressed_fg"])
+        elif self.underMouse():
+            bg = QColor(self.pal["hover_bg"])
+            border = QColor(self.pal["hover_border"])
+            icon_color = QColor(self.pal["hover_fg"])
+        else:
+            bg = QColor(self.pal["bg"])
+            border = QColor(self.pal["border"])
+            icon_color = QColor(self.pal["fg"])
+
+        # ★ Рисуем круг (drawEllipse), а не roundedRect
+        painter.setBrush(bg)
+        painter.setPen(QPen(border, 1.5))
+        painter.drawEllipse(rect)
+
+        pen = QPen(icon_color, 1.8)   # чуть тоньше линии — под маленький размер
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+
+        cx = rect.center().x()
+        cy = rect.center().y()
+        s = 4.0                        # уменьшили размер иконки под маленький круг
+
+        if self.icon_kind == "min":
+            painter.drawLine(QPointF(cx - s, cy + 1),
+                             QPointF(cx + s, cy + 1))
+        elif self.icon_kind == "max":
+            painter.drawRect(QRectF(cx - s, cy - s, s * 2, s * 2))
+        elif self.icon_kind == "restore":
+            painter.drawRect(QRectF(cx - s + 1, cy - s + 2,
+                                    s * 2 - 2, s * 2 - 2))
+            painter.drawLine(QPointF(cx - s + 3, cy - s),
+                             QPointF(cx + s, cy - s))
+            painter.drawLine(QPointF(cx + s, cy - s),
+                             QPointF(cx + s, cy + s - 3))
+        elif self.icon_kind == "close":
+            painter.drawLine(QPointF(cx - s, cy - s),
+                             QPointF(cx + s, cy + s))
+            painter.drawLine(QPointF(cx + s, cy - s),
+                             QPointF(cx - s, cy + s))
+
+        painter.end()
+
+
+# ----------------------------------------------------------------------
+# ★★★ АНИМИРОВАННЫЙ ЧЕКБОКС С ПУЛЬСАЦИЕЙ И МЕРЦАНИЕМ ★★★
+# ----------------------------------------------------------------------
+class PulseCheckBox(QCheckBox):
+    """
+    Чекбокс с анимациями:
+    - мягкое свечение вокруг рамки при наведении,
+    - пульс-волна (расширяющийся контур) при включении/выключении,
+    - мигающая галочка при переключении,
+    - плавный переход фона под курсором,
+    - тонкое цветное подчёркивание текста в отмеченном состоянии.
+    """
+
+    def __init__(self, text, base_color, hover_color, dim_bg, hover_bg,
+                 flash_color, parent=None):
+        super().__init__(text, parent)
+        self.base_color = QColor(base_color)
+        self.hover_color = QColor(hover_color)
+        self.dim_bg = QColor(dim_bg)
+        self.hover_bg = QColor(hover_bg)
+        self.flash_color = QColor(flash_color)
+
+        self._pulse_phase = 0.0
+        self._pulse_active = False
+        self._flash_phase = 0.0
+        self._flash_active = False
+        self._hover_progress = 0.0
+
+        self._pulse_timer = QTimer(self)
+        self._pulse_timer.setInterval(16)   # ~60 FPS
+        self._pulse_timer.timeout.connect(self._tick)
+
+        self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.setStyleSheet(
+            "QCheckBox { color: #FFFFFF; font-weight: bold; border: none;"
+            "padding-left: 4px; }"
+        )
+        f = self.font()
+        f.setPointSize(11)
+        f.setBold(True)
+        self.setFont(f)
+        self.setMinimumHeight(28)
+
+        self.stateChanged.connect(self._on_state_changed)
+
+    def _on_state_changed(self, _state):
+        self._pulse_phase = 0.0
+        self._pulse_active = True
+        self._flash_phase = 0.0
+        self._flash_active = True
+        if not self._pulse_timer.isActive():
+            self._pulse_timer.start()
+        self.update()
+
+    def _tick(self):
+        if self._pulse_active:
+            self._pulse_phase += 0.05
+            if self._pulse_phase >= 1.0:
+                self._pulse_phase = 0.0
+                self._pulse_active = False
+
+        if self._flash_active:
+            self._flash_phase += 0.08
+            if self._flash_phase >= 1.0:
+                self._flash_phase = 0.0
+                self._flash_active = False
+
+        target = 1.0 if self.underMouse() else 0.0
+        self._hover_progress += (target - self._hover_progress) * 0.25
+
+        if (not self._pulse_active and not self._flash_active
+                and abs(target - self._hover_progress) < 0.01):
+            self._hover_progress = target
+            self._pulse_timer.stop()
+
+        self.update()
+
+    def enterEvent(self, event):
+        if not self._pulse_timer.isActive():
+            self._pulse_timer.start()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        if not self._pulse_timer.isActive():
+            self._pulse_timer.start()
+        super().leaveEvent(event)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+
+        rect = self.rect()
+        box_size = 12
+        margin = 6
+        box_rect = QRectF(
+            rect.left() + margin,
+            rect.center().y() - box_size / 2.5,
+            box_size, box_size,
+        )
+        radius = 5.0
+        checked = self.isChecked()
+
+        if checked:
+            base = self.base_color
+            border = self.hover_color
+        else:
+            base = self.base_color
+            border = self.base_color
+
+        # Пульс-волна
+        if self._pulse_active:
+            wave = 1.0 - self._pulse_phase
+            expand = 6 * self._pulse_phase + 2
+            wave_alpha = int(180 * wave)
+            wave_color = QColor(self.flash_color)
+            wave_color.setAlpha(wave_alpha)
+            wave_rect = box_rect.adjusted(-expand, -expand, expand, expand)
+            pen = QPen(wave_color, 2.0)
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            painter.setPen(pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRoundedRect(wave_rect, radius + expand * 0.5,
+                                    radius + expand * 0.5)
+
+        # Свечение при hover
+        if self._hover_progress > 0.01:
+            glow = QColor(self.hover_color)
+            glow.setAlpha(int(90 * self._hover_progress))
+            painter.setBrush(glow)
+            painter.setPen(Qt.PenStyle.NoPen)
+            expand = 2
+            painter.drawRoundedRect(
+                box_rect.adjusted(-expand, -expand, expand, expand),
+                radius + 1, radius + 1,
+            )
+
+        # Фон квадратика
+        if checked:
+            fill_col = self.base_color
+        else:
+            h = self._hover_progress
+            dim = self.dim_bg
+            hov = self.hover_bg
+            fill_col = QColor(
+                int(dim.red() * (1 - h) + hov.red() * h),
+                int(dim.green() * (1 - h) + hov.green() * h),
+                int(dim.blue() * (1 - h) + hov.blue() * h),
+            )
+
+        painter.setBrush(fill_col)
+        pen = QPen(border, 2.0)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        painter.setPen(pen)
+        painter.drawRoundedRect(box_rect, radius, radius)
+
+        # Галочка
+        if checked:
+            check_pen = QPen(QColor("#0A1A0E"), 2.4)
+            check_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            check_pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+            painter.setPen(check_pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+
+            p1 = QPointF(box_rect.left() + box_size * 0.25,
+                         box_rect.top() + box_size * 0.55)
+            p2 = QPointF(box_rect.left() + box_size * 0.45,
+                         box_rect.top() + box_size * 0.72)
+            p3 = QPointF(box_rect.left() + box_size * 0.78,
+                         box_rect.top() + box_size * 0.30)
+
+            if self._flash_active:
+                flashes = 3
+                f = self._flash_phase
+                pulse = abs(math.sin(f * math.pi * flashes))
+                alpha = int(120 + 135 * pulse)
+                check_pen.setColor(QColor(10, 26, 14, alpha))
+                painter.setPen(check_pen)
+
+            painter.drawLine(p1, p2)
+            painter.drawLine(p2, p3)
+
+        # Текст
+        text_rect = QRectF(
+            box_rect.right() + 10, rect.top(),
+            rect.width() - box_rect.right() - 10, rect.height(),
+        )
+        painter.setPen(QColor("#FFFFFF"))
+        painter.setFont(self.font())
+        painter.drawText(
+            text_rect,
+            Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+            self.text(),
+        )
+        
+        painter.end()
 
 
 # ----------------------------------------------------------------------
@@ -1217,7 +1535,7 @@ class AboutDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(15)
-        title_lbl = QLabel("Photoshop WorkStation+ (v5.0)")
+        title_lbl = QLabel("Photoshop WorkStation+ (v5.1)")
         title_lbl.setFont(QFont("Segoe UI", 14, QFont.Weight.Bold))
         title_lbl.setStyleSheet("color: #00BFFF; border: none;")
         title_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -1228,9 +1546,11 @@ class AboutDialog(QDialog):
         пакетной обработки школьных фотографий, работы с RAW-фильтрами,
         наложения рамок, интеграции QR-кодов и быстрого экспорта
         через Adobe Photoshop.</p>
-        <p><b>Новое в v5.0:</b> предпросмотр JPG/PNG прямо из интерфейса
-        и анимированные подсказки выбора школы и формата.</p>
-        <p><b>Версия:</b> v5.0</p>
+        <p><b>Новое в v5.1:</b> кнопки управления окном в стиле
+        «Выход» / «Отменить выполнение» (фиолетовая / зелёная / красная),
+        анимированные чекбоксы 1520 (бирюзовый) и 2030 (#F72F86)
+        с пульсацией и мерцанием.</p>
+        <p><b>Версия:</b> v5.1</p>
         <p><b>Год выпуска:</b> 2026</p>
         <p><b>Разработчик:</b> DirtSmoke44 & JohnnySuon</p>
         """
@@ -1258,18 +1578,6 @@ class AboutDialog(QDialog):
 # ДИАЛОГ ПРЕДПРОСМОТРА JPG (С КНОПКОЙ ОТКРЫТЬ В PS)
 # ----------------------------------------------------------------------
 class ImagePreviewDialog(QDialog):
-    """
-    Диалог предпросмотра JPG-фотографий.
-    - Показывает ТОЛЬКО конечные подпапки с .jpg (1520, 2030 и т.п.)
-    - Исключает папки, в названии которых есть: 'фото', 'коды', 'классы'
-    - Сортировка по имени (с числовым приоритетом) или дате
-    - Справа от файла — дата и время изменения
-    - Кнопка «Открыть проект в PS» — ищет .psd, чьё имя начинается с
-      "<полное имя jpg без расширения> " в ТОЙ ЖЕ ПАПКЕ.
-      Например: 1A.jpg → 1A IMG_6432.psd
-      Скрывается для файлов из QR / образцы.
-    """
-
     EXCLUDED_KEYWORDS = ("фото", "коды", "классы")
     HIDDEN_BTN_KEYWORDS = ("qr", "образц")
 
@@ -1296,9 +1604,6 @@ class ImagePreviewDialog(QDialog):
         title.setWordWrap(True)
         layout.addWidget(title)
 
-        # =============================================================
-        # ВЕРХНЯЯ ПАНЕЛЬ
-        # =============================================================
         top_row = QHBoxLayout()
         top_row.setSpacing(8)
 
@@ -1359,9 +1664,6 @@ class ImagePreviewDialog(QDialog):
         top_row.addStretch(1)
         layout.addLayout(top_row)
 
-        # =============================================================
-        # ТЕЛО
-        # =============================================================
         body = QHBoxLayout()
         body.setSpacing(10)
 
@@ -1400,15 +1702,11 @@ class ImagePreviewDialog(QDialog):
 
         layout.addLayout(body, 1)
 
-        # =============================================================
-        # НИЖНЯЯ ПАНЕЛЬ
-        # =============================================================
         info_row = QHBoxLayout()
         self.lbl_info = QLabel("")
         self.lbl_info.setStyleSheet("color: #AAAAAA; font-size: 11px; border: none;")
         info_row.addWidget(self.lbl_info, 1)
 
-        # ★ Кнопка "Открыть проект в PS" (стиль raw_export)
         self.btn_open_ps = QPushButton("Открыть проект в PS")
         self.btn_open_ps.setFixedWidth(200)
         self.btn_open_ps.setMinimumHeight(34)
@@ -1428,7 +1726,6 @@ class ImagePreviewDialog(QDialog):
         self.btn_open_ps.setVisible(False)
         info_row.addWidget(self.btn_open_ps)
 
-        # ★ Кнопка "Закрыть" — красная
         btn_close = QPushButton("Закрыть")
         btn_close.setFixedWidth(140)
         btn_close.setMinimumHeight(34)
@@ -1451,9 +1748,6 @@ class ImagePreviewDialog(QDialog):
         self._populate_subfolders()
         self._populate()
 
-    # ================================================================
-    # СКАНИРОВАНИЕ
-    # ================================================================
     def _scan_files(self):
         self.all_items = []
         if not self.folder or not os.path.isdir(self.folder):
@@ -1529,9 +1823,6 @@ class ImagePreviewDialog(QDialog):
         self.subfolder_filter = self.combo_subfolder.currentData() or "__ALL__"
         self._populate()
 
-    # ================================================================
-    # СОРТИРОВКА
-    # ================================================================
     def _set_sort(self, mode):
         if self.sort_mode == mode:
             self.sort_ascending = not self.sort_ascending
@@ -1579,9 +1870,6 @@ class ImagePreviewDialog(QDialog):
             self.btn_sort_name.setStyleSheet(inactive_style)
             self.btn_sort_mtime.setStyleSheet(active_mtime_style)
 
-    # ================================================================
-    # УМНАЯ СОРТИРОВКА ПО ИМЕНИ
-    # ================================================================
     @staticmethod
     def _name_sort_key(filename):
         base = os.path.splitext(filename)[0].strip()
@@ -1596,9 +1884,6 @@ class ImagePreviewDialog(QDialog):
             return (0, number, suffix)
         return (0, 999999, base.upper())
 
-    # ================================================================
-    # ЗАПОЛНЕНИЕ СПИСКА
-    # ================================================================
     def _populate(self):
         self.list_widget.blockSignals(True)
         self.list_widget.clear()
@@ -1664,9 +1949,6 @@ class ImagePreviewDialog(QDialog):
 
         self.list_widget.blockSignals(False)
 
-    # ================================================================
-    # ПРЕДПРОСМОТР ВЫБРАННОГО ФАЙЛА
-    # ================================================================
     def _on_select(self, row):
         if row < 0 or row >= len(self.image_paths):
             return
@@ -1701,9 +1983,6 @@ class ImagePreviewDialog(QDialog):
         else:
             self.btn_open_ps.setVisible(True)
 
-    # ================================================================
-    # ПОИСК .PSD РЯДОМ С JPG
-    # ================================================================
     def _find_psd_for_current(self):
         row = self.list_widget.currentRow()
         if row < 0 or row >= len(self.image_paths):
@@ -1734,9 +2013,6 @@ class ImagePreviewDialog(QDialog):
 
         return None
 
-    # ================================================================
-    # ОТКРЫТИЕ .PSD В PHOTOSHOP
-    # ================================================================
     def _open_psd_in_photoshop(self):
         psd_path = self._find_psd_for_current()
         if not psd_path:
@@ -2685,13 +2961,12 @@ class ModernPhotoshopWorkstation(QMainWindow):
         self.ambient_video_path = ""
         self.drag_pos = None
 
-        # ★ Убираем системную рамку окна + прозрачный фон для закругления
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
 
-        self.setWindowTitle("Photoshop WorkStation+ v5.0")
+        self.setWindowTitle("Photoshop WorkStation+ v5.1")
         self.setFixedSize(1480, 760)
 
         icon_path = resource_path("iconapp_Photoshop Workstation+.png")
@@ -2736,16 +3011,16 @@ class ModernPhotoshopWorkstation(QMainWindow):
         self.active_script_border = None
         self.script_buttons = []
 
+        self.btn_win_min = None
+        self.btn_win_max = None
+        self.btn_win_close = None
+
         self.init_ui()
         self.center_window()
         self.pixel_icon.start()
 
-    # ──────────────────────────────────────────────────────────────────
-    # ПЕРЕТАСКИВАНИЕ ОКНА (т.к. нет системной рамки)
-    # ──────────────────────────────────────────────────────────────────
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
-            # Игнорируем перетаскивание, если попали на интерактивный виджет
             widget = self.childAt(event.position().toPoint())
             if widget is not None and isinstance(widget, (QPushButton, QComboBox,
                                                           QCheckBox, QTextEdit,
@@ -2765,8 +3040,12 @@ class ModernPhotoshopWorkstation(QMainWindow):
     def _toggle_maximize(self):
         if self.isMaximized():
             self.showNormal()
+            if self.btn_win_max is not None:
+                self.btn_win_max.set_icon_kind("max")
         else:
             self.showMaximized()
+            if self.btn_win_max is not None:
+                self.btn_win_max.set_icon_kind("restore")
 
     def _refresh_frame_paths(self):
         self.frame_1520_path = ""
@@ -2864,12 +3143,10 @@ class ModernPhotoshopWorkstation(QMainWindow):
     def init_ui(self):
         central_widget = QWidget(self)
         self.setCentralWidget(central_widget)
-        # ★ Закругление окна + основной цвет фона
         central_widget.setStyleSheet(
             "QWidget { background-color: #121212; border-radius: 20px; }"
         )
 
-        # ★ Прозрачная подложка — чтобы углы окна были прозрачны
         self.lbl_bg = QLabel(central_widget)
         self.lbl_bg.setGeometry(0, 0, 1480, 760)
         self.lbl_bg.setStyleSheet(
@@ -2897,18 +3174,18 @@ class ModernPhotoshopWorkstation(QMainWindow):
 
         welcome_container = QWidget()
         welcome_layout = QHBoxLayout(welcome_container)
-        welcome_layout.setContentsMargins(100, 0, 0, 0)
-        welcome_layout.setSpacing(0)
+        welcome_layout.setContentsMargins(260, 0, 0, 0)
+        welcome_layout.setSpacing(5)
         welcome_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        welcome_layout.addStretch(1)
 
-        lbl_welcome_part1 = QLabel("Добро пожаловать в ")
+        lbl_welcome_part1 = QLabel("Добро пожаловать в")
         font_welcome = QFont("Segoe UI", 13, QFont.Weight.Bold)
         lbl_welcome_part1.setFont(font_welcome)
         lbl_welcome_part1.setStyleSheet(
             "color: #FFFFFF; border: none; background: transparent;"
         )
 
-        # ★ Градиентная анимированная надпись "Photoshop WorkStation+"
         self.lbl_welcome_part2 = GradientLabel(
             "Photoshop WorkStation+",
             colors=("#FF70D8", "#5ca5ff", "#fa00ab", "#FF70D8"),
@@ -2923,13 +3200,14 @@ class ModernPhotoshopWorkstation(QMainWindow):
 
         welcome_layout.addWidget(lbl_welcome_part1)
         welcome_layout.addWidget(self.lbl_welcome_part2)
+        welcome_layout.addStretch(1)
         header_layout.addWidget(welcome_container, 1)
 
         right_side = QWidget()
-        right_side.setFixedWidth(SIDE_WIDTH + 200)
+        right_side.setFixedWidth(SIDE_WIDTH + 260)
         right_side_layout = QHBoxLayout(right_side)
         right_side_layout.setContentsMargins(0, 0, 0, 0)
-        right_side_layout.setSpacing(6)
+        right_side_layout.setSpacing(8)
         right_side_layout.setAlignment(
             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
         )
@@ -2957,38 +3235,20 @@ class ModernPhotoshopWorkstation(QMainWindow):
         btn_about.clicked.connect(self.open_about_dialog)
         right_side_layout.addWidget(btn_about)
 
-        # ★ Кастомные кнопки управления окном
-        win_btn_style = (
-            "QPushButton { background-color: transparent; color: #AAAAAA;"
-            "border: none; border-radius: 6px; font-size: 14px; font-weight: bold; }"
-            "QPushButton:hover { background-color: #2A2A2A; color: #FFFFFF; }"
-        )
-        win_btn_close_style = (
-            "QPushButton { background-color: transparent; color: #AAAAAA;"
-            "border: none; border-radius: 6px; font-size: 14px; font-weight: bold; }"
-            "QPushButton:hover { background-color: #E91E63; color: #FFFFFF; }"
-        )
+        self.btn_win_min = CircleWindowButton(icon_kind="min", style_key="min")
+        self.btn_win_min.setToolTip("Свернуть")
+        self.btn_win_min.clicked.connect(self.showMinimized)
+        right_side_layout.addWidget(self.btn_win_min)
 
-        btn_min = QPushButton("—")
-        btn_min.setFixedSize(28, 28)
-        btn_min.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        btn_min.setStyleSheet(win_btn_style)
-        btn_min.clicked.connect(self.showMinimized)
-        right_side_layout.addWidget(btn_min)
+        self.btn_win_max = CircleWindowButton(icon_kind="max", style_key="max")
+        self.btn_win_max.setToolTip("Развернуть")
+        self.btn_win_max.clicked.connect(self._toggle_maximize)
+        right_side_layout.addWidget(self.btn_win_max)
 
-        btn_max = QPushButton("□")
-        btn_max.setFixedSize(28, 28)
-        btn_max.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        btn_max.setStyleSheet(win_btn_style)
-        btn_max.clicked.connect(self._toggle_maximize)
-        right_side_layout.addWidget(btn_max)
-
-        btn_close_win = QPushButton("✕")
-        btn_close_win.setFixedSize(28, 28)
-        btn_close_win.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        btn_close_win.setStyleSheet(win_btn_close_style)
-        btn_close_win.clicked.connect(self.close)
-        right_side_layout.addWidget(btn_close_win)
+        self.btn_win_close = CircleWindowButton(icon_kind="close", style_key="close")
+        self.btn_win_close.setToolTip("Закрыть")
+        self.btn_win_close.clicked.connect(self.close)
+        right_side_layout.addWidget(self.btn_win_close)
 
         header_layout.addWidget(right_side)
         main_layout.addWidget(header_frame)
@@ -3011,14 +3271,6 @@ class ModernPhotoshopWorkstation(QMainWindow):
         )
         text_color = "white"
         sub_bg = "#1A1A1A"
-        sub_title_color = "#888888"
-        chk_style = (
-            "QCheckBox { color: white; font-weight: bold; border: none; }"
-            "QCheckBox::indicator { border: 1px solid white; border-radius: 3px;"
-            "background: #222222; width: 13px; height: 13px; }"
-            "QCheckBox::indicator:checked { background-color: #CCFF00;"
-            "border: 1px solid white; }"
-        )
         log_bg = "#171717"
         log_fg = "#EEEEEE"
         header_color = "#00BFFF"
@@ -3032,7 +3284,7 @@ class ModernPhotoshopWorkstation(QMainWindow):
         layout_school.setContentsMargins(15, 15, 15, 15)
         layout_school.setSpacing(10)
 
-        title_school = QLabel("1. Рабочая папка (ШКОЛЫ)")
+        title_school = QLabel("1. Рабочая папка")
         title_school.setFont(QFont("Segoe UI", 14, QFont.Weight.Bold))
         title_school.setStyleSheet(f"color: {header_color}; border: none;")
         title_school.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -3065,9 +3317,9 @@ class ModernPhotoshopWorkstation(QMainWindow):
         layout_school.addWidget(video_container)
         layout_school.addSpacing(10)
 
-        lbl_select = QLabel("📁 Выберите школу:")
+        lbl_select = QLabel("📂 Выберите школу:")
         lbl_select.setFont(QFont("Segoe UI", 11, QFont.Weight.Bold))
-        lbl_select.setStyleSheet("color: #CCFF66; border: none;")
+        lbl_select.setStyleSheet("color: #8391fc; border: none;")
         lbl_select.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout_school.addWidget(lbl_select)
 
@@ -3091,18 +3343,36 @@ class ModernPhotoshopWorkstation(QMainWindow):
 
         self.lbl_sub = QLabel("Обрабатывать подпапки:")
         self.lbl_sub.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
-        self.lbl_sub.setStyleSheet("color: #f5d776; border: none;")
+        self.lbl_sub.setStyleSheet("color: #ffc642; border: none;")
         self.lbl_sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout_sub.addWidget(self.lbl_sub)
 
         layout_checks = QHBoxLayout()
         layout_checks.setSpacing(30)
-        self.chk_1520 = QCheckBox("Папка 1520")
-        self.chk_1520.setStyleSheet(chk_style)
+
+        # 1520 — САЛАТОВЫЙ
+        self.chk_1520 = PulseCheckBox(
+            "Папка 1520",
+            base_color="#B4FF2E",
+            hover_color="#D4FF80",
+            dim_bg="#26360E",
+            hover_bg="#3C5A18",
+            flash_color="#B4FF2E",
+        )
         self.chk_1520.stateChanged.connect(self.update_file_list)
-        self.chk_2030 = QCheckBox("Папка 2030")
-        self.chk_2030.setStyleSheet(chk_style)
+
+        # 2030 — МАДЖЕНТА
+        self.chk_2030 = PulseCheckBox(
+            "Папка 2030",
+            base_color="#FF2EC9",
+            hover_color="#FF80DC",
+            dim_bg="#3A0E2E",
+            hover_bg="#5A1850",
+            flash_color="#FF2EC9",
+        )
         self.chk_2030.stateChanged.connect(self.update_file_list)
+        self.chk_2030.stateChanged.connect(self.update_file_list)
+
         layout_checks.addStretch()
         layout_checks.addWidget(self.chk_1520)
         layout_checks.addWidget(self.chk_2030)
@@ -3152,7 +3422,6 @@ class ModernPhotoshopWorkstation(QMainWindow):
         layout_school.addWidget(self.qr_panel)
         layout_school.addSpacing(8)
 
-        # ★ Кнопка предпросмотра JPG — над путём школы
         btn_preview = QPushButton("🔍 Предпросмотр JPG")
         btn_preview.setStyleSheet(
             "QPushButton { background-color: #0F282E; color: #00E5FF;"
@@ -3172,17 +3441,17 @@ class ModernPhotoshopWorkstation(QMainWindow):
         self.lbl_path_info.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout_school.addWidget(self.lbl_path_info)
 
-        # ★ PSD найден — GradientLabel (синий → зелёный → розовый)
         self.lbl_count_info = GradientLabel(
             "",
-            colors=("#4DA6FF", "#4DE8B1", "#FF70D8", "#4DA6FF"),
+        colors=("#5CE8FF", "#3187FF", "#FF57D5", "#5CE8FF"),
+
             font=QFont("Segoe UI", 11, QFont.Weight.Bold),
-            speed=0.020,
+            speed=0.015,
         )
         self.lbl_count_info.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_count_info.setFrameShape(QFrame.Shape.NoFrame)
         _pal = self.lbl_count_info.palette()
-        _pal.setColor(self.lbl_count_info.foregroundRole(), QColor("#4DA6FF"))
+        _pal.setColor(self.lbl_count_info.foregroundRole(), QColor("#5CE8FF"))
         self.lbl_count_info.setPalette(_pal)
         self.lbl_count_info.setStyleSheet(
             "border: none; background: transparent;"
@@ -3219,9 +3488,9 @@ class ModernPhotoshopWorkstation(QMainWindow):
         self.lbl_hint_scripts.setWordWrap(True)
         self.lbl_hint_scripts.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_hint_scripts.setStyleSheet(
-            "QLabel { color: #FF44CC; background-color: #3A0030;"
-            "border: 1px solid #6A0058; border-radius: 8px; padding: 6px;"
-            "font-size: 11px; font-weight: bold; }"
+            "QLabel { color: #B8E858; background-color: #232A14;"
+            "border: 1px solid #3A4A1A; border-radius: 15px; padding: 8px;"
+            "font-family: 'Segoe UI'; font-size: 13px; font-weight: bold; }"
         )
         layout_scripts.addWidget(self.lbl_hint_scripts)
 
@@ -3341,7 +3610,7 @@ class ModernPhotoshopWorkstation(QMainWindow):
         authors_row.addWidget(lbl_author)
         layout_footer.addLayout(authors_row)
 
-        lbl_copyright = QLabel("© 2026 All Rights Reserved")
+        lbl_copyright = QLabel("All Rights Reserved. 2026 ©")
         lbl_copyright.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lbl_copyright.setStyleSheet(
             "color: #888888; font-size: 11px; font-weight: bold; border: none;"
@@ -3492,15 +3761,21 @@ class ModernPhotoshopWorkstation(QMainWindow):
         try:
             os.makedirs(base_path, exist_ok=True)
             os.makedirs(school_dir, exist_ok=True)
+
+            # Основные подпапки с префиксом номера школы
             for suffix in [" 1520", " 2030", " QR", " образцы"]:
                 os.makedirs(os.path.join(school_dir, school_num + suffix),
                             exist_ok=True)
+
+            # Папка "коды" — без префикса номера школы
             os.makedirs(os.path.join(school_dir, "коды"), exist_ok=True)
+
+            # ★ Подпапки 1520/2030 создаём ТОЛЬКО внутри "образцы",
+            #   а внутри "QR" вложенные папки НЕ создаются.
             for sub in ("1520", "2030"):
                 os.makedirs(os.path.join(school_dir, school_num + " образцы", sub),
                             exist_ok=True)
-                os.makedirs(os.path.join(school_dir, school_num + " QR", sub),
-                            exist_ok=True)
+
             return True, school_dir
         except Exception as e:
             return False, f"Ошибка создания папок:\n{e}"
@@ -3534,7 +3809,7 @@ class ModernPhotoshopWorkstation(QMainWindow):
             self.append_log("__INFO__Созданные разделы:")
             self.append_log(f"__INFO__• {school_num} 1520")
             self.append_log(f"__INFO__• {school_num} 2030")
-            self.append_log(f"__INFO__• {school_num} QR (1520/2030)")
+            self.append_log(f"__INFO__• {school_num} QR")
             self.append_log(f"__INFO__• {school_num} образцы (1520/2030)")
             self.append_log(f"__INFO__• коды")
             self.refresh_school_list()
@@ -3692,15 +3967,15 @@ class ModernPhotoshopWorkstation(QMainWindow):
         elif safe_text.startswith("__ERROR__"):
             inner = safe_text[len("__ERROR__"):]
             html_text = ("<span style='color:#FF8898; font-weight:bold;'>"
-                         "❌ " + html.escape(inner) + "</span>")
+                         "⛔ " + html.escape(inner) + "</span>")
         elif safe_text.startswith("__INFO__"):
             inner = safe_text[len("__INFO__"):]
             html_text = ("<span style='color:#7CC4FF;'>"
-                         "ℹ️ " + html.escape(inner) + "</span>")
+                         "🔄 " + html.escape(inner) + "</span>")
         elif safe_text.startswith("__WARN__"):
             inner = safe_text[len("__WARN__"):]
             html_text = ("<span style='color:#FFC074; font-weight:bold;'>"
-                         "⚠️ " + html.escape(inner) + "</span>")
+                         "💡 " + html.escape(inner) + "</span>")
         else:
             html_text = ("<span style='color:#C8CEDA;'>"
                          "• " + html.escape(safe_text) + "</span>")
@@ -3714,8 +3989,7 @@ class ModernPhotoshopWorkstation(QMainWindow):
                 and text != "Папки не найдены"):
             self.selected_school_name = text
             self.selected_folder = os.path.join(self.default_schools_dir, text)
-            # ★ Показываем только имя школы, полный путь — в tooltip
-            self.lbl_path_info.setText(text)
+            self.lbl_path_info.setText("")
             self.lbl_path_info.setToolTip(self.selected_folder)
             self.lbl_path_info.setStyleSheet(
                 "color: #FFFFFF; border: none; font-size: 13px; font-weight: bold;"
