@@ -1888,7 +1888,19 @@ class GradientLabel(QLabel):
                  colors=("#B8E62E", "#6EE8A0", "#4DE8B1", "#B8E62E"),
                  font=None, speed=0.006):
         super().__init__(text, parent)
-        self._colors = [QColor(c) for c in colors]
+        # Если переданы кастомные цвета, используем их, иначе задаем дефолтные RGB
+        if colors and len(colors) > 0:
+            self._colors = [QColor(c) for c in colors]
+        else:
+            self._colors = [
+                QColor("#FF0000"), # Красный
+                QColor("#00FF00"), # Зеленый
+                QColor("#0000FF"), # Синий
+                QColor("#FF00FF"), # Пурпурный
+                QColor("#00FFFF"), # Голубой
+                QColor("#FFFF00"), # Желтый
+                QColor("#FF0000")  # Снова красный для замыкания круга
+            ]
         self._offset = 0.0
         self._speed = speed
         self._timer = QTimer(self)
@@ -1910,6 +1922,7 @@ class GradientLabel(QLabel):
         self.update()
 
     def _tick(self):
+        # Бесшовный сдвиг: значение всегда от 0.0 до 1.0
         self._offset = (self._offset + self._speed) % 1.0
         self.update()
 
@@ -1917,17 +1930,29 @@ class GradientLabel(QLabel):
         if not self._active or not self.text():
             super().paintEvent(event)
             return
+            
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+        
         rect = self.rect()
-        grad = QLinearGradient(rect.left(), 0, rect.right(), 0)
+        
+        # Создаем градиент, который шире самого текста (в 2 раза), 
+        # чтобы цвета плавно перетекали друг в друга без резких скачков
+        grad = QLinearGradient(rect.left(), 0, rect.left() + rect.width() * 2, 0)
+        
         n = len(self._colors)
-        span = 0.5
-        start = self._offset - span
-        for i in range(n):
-            pos = start + span * (i / (n - 1))
-            grad.setColorAt(max(0.0, min(1.0, pos)), self._colors[i])
+        for i, color in enumerate(self._colors):
+            # Распределяем цвета равномерно по всей длине градиента
+            pos = i / (n - 1)
+            grad.setColorAt(pos, color)
+            
+        # Смещаем градиент циклично
+        # При offset = 1.0 он сдвигается ровно на длину одного цвета,
+        # поэтому переход выглядит бесконечным и незаметным
+        grad.setStart(rect.left() - rect.width() * self._offset, 0)
+        grad.setFinalStop(rect.left() + rect.width() * (2 - self._offset), 0)
+        
         pen = QPen(QBrush(grad), 0)
         painter.setPen(pen)
         painter.setFont(self.font())
