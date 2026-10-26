@@ -7,6 +7,7 @@ import html
 import json   
 import win32com.client
 
+from PyQt6.QtWidgets import QTextBrowser
 
 from PyQt6.QtCore import (
     Qt, QThread, pyqtSignal, QTimer, QRectF, QUrl, QPointF, QSize,
@@ -22,7 +23,7 @@ from PyQt6.QtWidgets import (
     QGridLayout, QLabel, QComboBox, QCheckBox, QPushButton,
     QTextEdit, QProgressBar, QFrame, QDialog, QTextBrowser,
     QSizePolicy, QFileDialog, QListView, QLayout,
-    QListWidget, QListWidgetItem, QAbstractItemView,
+    QListWidget, QListWidgetItem, QAbstractItemView, QScrollArea,
 )
 from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PyQt6.QtMultimediaWidgets import QVideoWidget
@@ -197,7 +198,6 @@ class CircleIconButton(QPushButton):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        # ★ Отступ от краёв виджета — 3 px, чтобы контур не резался
         rect = QRectF(self.rect()).adjusted(3.0, 3.0, -3.0, -3.0)
 
         if self.isDown():
@@ -226,7 +226,6 @@ class CircleIconButton(QPushButton):
         cx = rect.center().x()
         cy = rect.center().y()
 
-        # ★ Иконки меньше радиуса круга (радиус ~ 11.5 px после отступа)
         if self.icon_kind == "settings":
             r_inner = 3.8
             r_outer = 5.4
@@ -239,14 +238,12 @@ class CircleIconButton(QPushButton):
                 y2 = cy + r_outer * math.sin(angle)
                 painter.drawLine(QPointF(x1, y1), QPointF(x2, y2))
         elif self.icon_kind == "about":
-            # Лампочка: колба + цоколь
             painter.drawEllipse(QPointF(cx, cy - 1.5), 3.8, 3.8)
             painter.drawLine(QPointF(cx - 2.4, cy + 2.5),
                              QPointF(cx + 2.4, cy + 2.5))
             painter.drawLine(QPointF(cx - 2.0, cy + 4.2),
                              QPointF(cx + 2.0, cy + 4.2))
         elif self.icon_kind == "user":
-            # Голова + плечи
             painter.drawEllipse(QPointF(cx, cy - 2.5), 3.0, 3.0)
             path = QPainterPath()
             path.moveTo(cx - 5.2, cy + 5.2)
@@ -772,7 +769,7 @@ def get_preset_button_style(color_key):
             background-color: {bg};
             color: {fg};
             border: 2px solid {border};
-            border-radius: 15px;
+            border-radius: 13px;  /* Скругленные углы */
             padding: 8px 6px;
             font-weight: bold;
             font-size: 11px;
@@ -792,7 +789,6 @@ def get_preset_button_style(color_key):
             border: 2px solid #2A2A2A;
         }}
     """
-
 
 # ----------------------------------------------------------------------
 # RGB ANIMATED BORDER
@@ -1436,21 +1432,28 @@ class BatchActionsDialog(QDialog):
         btn_row.setSpacing(10)
         self.btn_start = QPushButton("Запустить")
         self.btn_start.setStyleSheet(
-            "QPushButton { background-color: #2E7D32; color: white;"
-            "border: none; border-radius: 15px; padding: 10px;"
-            "font-weight: bold; font-size: 12px; }"
-            "QPushButton:hover { background-color: #1B5E20; }"
-            "QPushButton:disabled { background-color: #333333; color: #777777; }"
+            "QPushButton { background-color: #0E3A18; color: #5CFF8A;"
+            "border: 2px solid #1A5A28; border-radius: 0px;"
+            "padding: 8px; font-weight: bold; font-size: 12px; }"
+            "QPushButton:hover { background-color: #1A5A28;"
+            "border: 1px solid #5CFF8A; color: #9CFFB8; }"
+            "QPushButton:pressed { background-color: #2ECC71;"
+            "border: 1px solid #5CFF8A; color: #0A1A0E; }"
+            "QPushButton:disabled { background-color: #1A1A1A;"
+            "color: #555555; border: 2px solid #2A2A2A; }"
         )
         self.btn_start.clicked.connect(self._on_start)
         btn_row.addWidget(self.btn_start, 1)
 
         btn_cancel = QPushButton("Отмена")
         btn_cancel.setStyleSheet(
-            "QPushButton { background-color: #D32F2F; color: white;"
-            "border: none; border-radius: 15px; padding: 10px;"
-            "font-weight: bold; font-size: 12px; }"
-            "QPushButton:hover { background-color: #B71C1C; }"
+            "QPushButton { background-color: #3A0A1A; color: #FF4081;"
+            "border: 2px solid #5A1028; border-radius: 0px;"
+            "padding: 8px; font-weight: bold; font-size: 12px; }"
+            "QPushButton:hover { background-color: #5A1028;"
+            "border: 1px solid #FF4081; color: #FF80AB; }"
+            "QPushButton:pressed { background-color: #E91E63;"
+            "border: 1px solid #FF4081; color: #FFFFFF; }"
         )
         btn_cancel.clicked.connect(self.reject)
         btn_row.addWidget(btn_cancel, 1)
@@ -1559,12 +1562,12 @@ class BatchActionsDialog(QDialog):
         if set_ok and act_ok:
             self.lbl_status.setText("✅ Готово к запуску")
             self.lbl_status.setStyleSheet(
-                "color: #66DD66; border: none; font-size: 11px; font-weight: bold;"
+                "color: #66DD66; border: none; font-size: 14px; font-weight: bold;"
             )
         else:
             self.lbl_status.setText("❌ Заполните Action Set и Actions")
             self.lbl_status.setStyleSheet(
-                "color: #FF5555; border: none; font-size: 11px; font-weight: bold;"
+                "color: #FF5555; border: none; font-size: 14px; font-weight: bold;"
             )
         self.btn_start.setEnabled(set_ok and act_ok)
 
@@ -1888,18 +1891,17 @@ class GradientLabel(QLabel):
                  colors=("#B8E62E", "#6EE8A0", "#4DE8B1", "#B8E62E"),
                  font=None, speed=0.006):
         super().__init__(text, parent)
-        # Если переданы кастомные цвета, используем их, иначе задаем дефолтные RGB
         if colors and len(colors) > 0:
             self._colors = [QColor(c) for c in colors]
         else:
             self._colors = [
-                QColor("#FF0000"), # Красный
-                QColor("#00FF00"), # Зеленый
-                QColor("#0000FF"), # Синий
-                QColor("#FF00FF"), # Пурпурный
-                QColor("#00FFFF"), # Голубой
-                QColor("#FFFF00"), # Желтый
-                QColor("#FF0000")  # Снова красный для замыкания круга
+                QColor("#FF0000"),
+                QColor("#00FF00"),
+                QColor("#0000FF"),
+                QColor("#FF00FF"),
+                QColor("#00FFFF"),
+                QColor("#FFFF00"),
+                QColor("#FF0000")
             ]
         self._offset = 0.0
         self._speed = speed
@@ -1922,7 +1924,6 @@ class GradientLabel(QLabel):
         self.update()
 
     def _tick(self):
-        # Бесшовный сдвиг: значение всегда от 0.0 до 1.0
         self._offset = (self._offset + self._speed) % 1.0
         self.update()
 
@@ -1936,20 +1937,13 @@ class GradientLabel(QLabel):
         painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
         
         rect = self.rect()
-        
-        # Создаем градиент, который шире самого текста (в 2 раза), 
-        # чтобы цвета плавно перетекали друг в друга без резких скачков
         grad = QLinearGradient(rect.left(), 0, rect.left() + rect.width() * 2, 0)
         
         n = len(self._colors)
         for i, color in enumerate(self._colors):
-            # Распределяем цвета равномерно по всей длине градиента
             pos = i / (n - 1)
             grad.setColorAt(pos, color)
             
-        # Смещаем градиент циклично
-        # При offset = 1.0 он сдвигается ровно на длину одного цвета,
-        # поэтому переход выглядит бесконечным и незаметным
         grad.setStart(rect.left() - rect.width() * self._offset, 0)
         grad.setFinalStop(rect.left() + rect.width() * (2 - self._offset), 0)
         
@@ -3011,6 +3005,7 @@ class WorkerThread(QThread):
     log_signal = pyqtSignal(str)
     card_signal = pyqtSignal(str, str, str)
     finished_signal = pyqtSignal(int, str)
+    typing_signal = pyqtSignal(bool)
 
     def __init__(self, mode, files, scripts_dir, script_filename, script_title,
                  school_name, is_visible=False, qr_frame_path=None,
@@ -3040,7 +3035,6 @@ class WorkerThread(QThread):
     def _build_jsx_path(self):
         original = os.path.join(self.scripts_dir, self.script_filename)
         
-        # --- ВСТАВКА QR ВО ВСЕ КЛАССЫ (кнопка insert_qr) ---
         if self.mode == "insert_qr":
             if not os.path.exists(original):
                 return original
@@ -3076,7 +3070,6 @@ class WorkerThread(QThread):
                 self.log_signal.emit(f"Ошибка генерации временного JSX: {e}")
                 return original
 
-        # --- СТАРЫЕ РЕЖИМЫ ---
         if self.mode == "qr" and self.qr_frame_path and self.qr_folder_path:
             if not os.path.exists(original):
                 return original
@@ -3184,7 +3177,6 @@ class WorkerThread(QThread):
 
             total = len(self.files)
             processed_count = 0
-            self.log_signal.emit("--- НАЧАЛО ОБРАБОТКИ ---")
 
             for idx, psd_path in enumerate(self.files, start=1):
                 if self.is_cancelled:
@@ -3192,15 +3184,19 @@ class WorkerThread(QThread):
                 file_name = os.path.basename(psd_path)
                 parent_dir = os.path.basename(os.path.dirname(psd_path))
                 self.file_status_signal.emit(f"Обновление {idx}/{total}", file_name)
+                self.typing_signal.emit(True)
                 try:
                     doc = self.ps_app.Open(psd_path)
                     self.ps_app.DoJavaScriptFile(jsx_path)
                     doc.Close(1)
                     processed_count += 1
                     
-                    self.card_signal.emit(file_name, "done", "Успешно обработан")
+                    self.card_signal.emit(file_name, "done", "Обновлён")
+                    self.log_signal.emit(f"✅ Файл {file_name} Обновлён")
                 except Exception as e:
                     self.card_signal.emit(file_name, "error", "Не удалось обработать")
+                    self.log_signal.emit(f"Ошибка при обработке {file_name}: {e}")
+                self.typing_signal.emit(False)
                 self.progress_signal.emit(idx, total)
 
             if not self.is_cancelled:
@@ -3214,7 +3210,6 @@ class WorkerThread(QThread):
                 pass
 
     def _run_insert_qr(self):
-        """Пофайловая вставка QR-кодов в выбранные PSD."""
         total = len(self.files)
         if total == 0:
             self.log_signal.emit("__ERROR__Не выбраны PSD-файлы для вставки QR.")
@@ -3222,7 +3217,6 @@ class WorkerThread(QThread):
             return
         processed = 0
         errors = 0
-        self.log_signal.emit("--- НАЧАЛО ВСТАВКИ QR В ВЫБРАННЫЕ PSD ---")
         template_path = os.path.join(self.scripts_dir, self.script_filename)
         if not os.path.exists(template_path):
             self.log_signal.emit(
@@ -3238,6 +3232,7 @@ class WorkerThread(QThread):
                 break
             file_name = os.path.basename(psd_path)
             self.file_status_signal.emit(f"Обновление {idx}/{total}", file_name)
+            self.typing_signal.emit(True)
             try:
                 try:
                     _ = self.ps_app.Version
@@ -3274,6 +3269,7 @@ class WorkerThread(QThread):
                     self.ps_app.DoJavaScriptFile(tmp_jsx)
                     processed += 1
                     self.card_signal.emit(file_name, "done", "QR вставлен")
+                    self.log_signal.emit(f"QR-код успешно вставлен в {file_name}")
                 except Exception as e:
                     errors += 1
                     self.log_signal.emit(
@@ -3290,11 +3286,12 @@ class WorkerThread(QThread):
                 self.log_signal.emit(
                     f"__ERROR__Не удалось подготовить JSX для {file_name}: {e}"
                 )
+            self.typing_signal.emit(False)
             self.progress_signal.emit(idx, total)
 
         if not self.is_cancelled:
             self.log_signal.emit(
-                f"__INFO__Итого: обработано {processed} из {total}, ошибок: {errors}"
+                f"__INFO__📊 Итого: обработано {processed} из {total}, ошибок: {errors}"
             )
             self.finished_signal.emit(processed, self.script_title)
 
@@ -3303,14 +3300,6 @@ class WorkerThread(QThread):
         processed_count = 0
         errors_count = 0
         skipped_count = 0
-        self.log_signal.emit("--- НАЧАЛО УМНОЙ ВСТАВКИ РАМОК ---")
-        self.log_signal.emit(f"Файлов: {total}")
-
-        for kind, path in (("1520", self.frame_1520_path), ("2030", self.frame_2030_path)):
-            if path and os.path.exists(path):
-                self.log_signal.emit(f"__INFO__Рамка {kind}: {path}")
-            else:
-                self.log_signal.emit(f"__WARN__Рамка {kind} не найдена: {path}")
 
         template_path = os.path.join(self.scripts_dir, self.script_filename)
         if not os.path.exists(template_path):
@@ -3336,6 +3325,7 @@ class WorkerThread(QThread):
                 self.progress_signal.emit(idx, total)
                 continue
             self.file_status_signal.emit(f"Обновление {idx}/{total} ({kind})", file_name)
+            self.typing_signal.emit(True)
             try:
                 _ = self.ps_app.Version
             except Exception:
@@ -3346,19 +3336,23 @@ class WorkerThread(QThread):
                 errors_count += 1
                 self.card_signal.emit(file_name, "error", "Ошибка подготовки JSX")
                 self.progress_signal.emit(idx, total)
+                self.typing_signal.emit(False)
                 continue
             try:
                 self.ps_app.DoJavaScriptFile(jsx_for_file)
                 processed_count += 1
-                self.card_signal.emit(file_name, "done", f"Успешно обработан ({kind})")
+                self.card_signal.emit(file_name, "done", f"Обновлён ({kind})")
+                self.log_signal.emit(f"✅ Файл {file_name} Обновлён (рамка {kind})")
             except Exception as e:
                 errors_count += 1
                 self.card_signal.emit(file_name, "error", "Не удалось обработать")
+                self.log_signal.emit(f"Ошибка при обработке {file_name}: {e}")
             finally:
                 try:
                     os.remove(jsx_for_file)
                 except Exception:
                     pass
+            self.typing_signal.emit(False)
             self.progress_signal.emit(idx, total)
 
         if not self.is_cancelled:
@@ -3372,10 +3366,6 @@ class WorkerThread(QThread):
         total = len(self.files)
         processed_count = 0
         errors_count = 0
-        self.log_signal.emit("--- НАЧАЛО BATCH ACTIONS (COM) ---")
-        self.log_signal.emit(f"Action Set: {self.action_set}")
-        self.log_signal.emit(f"Actions: {self.actions_list}")
-        self.log_signal.emit(f"Файлов: {total}")
 
         actions = [a.strip() for a in (self.actions_list or "").split(",") if a.strip()]
         if not actions:
@@ -3389,6 +3379,7 @@ class WorkerThread(QThread):
             file_name = os.path.basename(psd_path)
             parent_dir = os.path.basename(os.path.dirname(psd_path))
             self.file_status_signal.emit(f"Обновление {idx}/{total}", file_name)
+            self.typing_signal.emit(True)
             try:
                 _ = self.ps_app.Version
             except Exception:
@@ -3414,20 +3405,23 @@ class WorkerThread(QThread):
                 except Exception:
                     pass
                 processed_count += 1
-                self.card_signal.emit(file_name, "done", "Успешно обработан")
+                self.card_signal.emit(file_name, "done", "Обновлён")
+                self.log_signal.emit(f"✅ Файл {file_name} Обновлён (Batch Actions)")
             except Exception as e:
                 errors_count += 1
                 self.card_signal.emit(file_name, "error", "Не удалось обработать")
+                self.log_signal.emit(f"Ошибка при обработке {file_name}: {e}")
                 try:
                     if doc is not None:
                         doc.Close(1)
                 except Exception:
                     pass
+            self.typing_signal.emit(False)
             self.progress_signal.emit(idx, total)
 
         if not self.is_cancelled:
             self.log_signal.emit(
-                f"__INFO__Итого: обработано {processed_count} из {total}, "
+                f"__INFO__📊 Итого: Обновлено {processed_count} из {total}, "
                 f"ошибок: {errors_count}"
             )
             self.finished_signal.emit(processed_count, self.script_title)
@@ -3517,6 +3511,106 @@ class WorkerThread(QThread):
 
 
 # ----------------------------------------------------------------------
+# ★★★ ВИДЖЕТ СООБЩЕНИЯ В ЧАТЕ ★★★
+# ----------------------------------------------------------------------
+class ChatMessageWidget(QWidget):
+    """Одно сообщение в чате: аватарка слева, пурпурный пузырь с белым текстом,
+    центрированная метка 'доставлено' под ним с анимацией shimmer."""
+    def __init__(self, text, avatar_pixmap=None, show_delivered=True, parent=None):
+        super().__init__(parent)
+        self.text = text
+        self.show_delivered = show_delivered
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(2, 2, 2, 2)
+        layout.setSpacing(8)
+        layout.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+
+        # --- Круглая аватарка ---
+        self.avatar_label = QLabel()
+        self.avatar_label.setFixedSize(30, 30)
+        self.avatar_label.setStyleSheet("border: none; background: transparent;")
+
+        if avatar_pixmap and not avatar_pixmap.isNull():
+            rounded = QPixmap(30, 30)
+            rounded.fill(Qt.GlobalColor.transparent)
+            p = QPainter(rounded)
+            p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            path = QPainterPath()
+            path.addEllipse(0, 0, 30, 30)
+            p.setClipPath(path)
+            p.drawPixmap(
+                0, 0,
+                avatar_pixmap.scaled(
+                    30, 30,
+                    Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                    Qt.TransformationMode.SmoothTransformation
+                )
+            )
+            p.end()
+            self.avatar_label.setPixmap(rounded)
+        else:
+            fallback = QPixmap(36, 36)
+            fallback.fill(Qt.GlobalColor.transparent)
+            p = QPainter(fallback)
+            p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            p.setBrush(QColor("#7CFFCB"))
+            p.setPen(Qt.PenStyle.NoPen)
+            p.drawEllipse(0, 0, 36, 36)
+            p.setPen(QColor("#0A1A0E"))
+            p.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
+            p.drawText(fallback.rect(), Qt.AlignmentFlag.AlignCenter, "?")
+            p.end()
+            self.avatar_label.setPixmap(fallback)
+
+        layout.addWidget(self.avatar_label, 0, Qt.AlignmentFlag.AlignTop)
+
+        # --- Контейнер для пузыря и Delivered ---
+        msg_container = QVBoxLayout()
+        msg_container.setSpacing(4)
+        msg_container.setAlignment(Qt.AlignmentFlag.AlignLeft)
+
+        # Используем QLabel с WordWrap — он идеально переносит текст
+        self.bubble = QLabel()
+        self.bubble.setTextFormat(Qt.TextFormat.RichText)
+        self.bubble.setWordWrap(True)
+        self.bubble.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+
+        safe_text = html.escape(text).replace("\n", "<br>")
+        self.bubble.setText(
+            f"<div style='color: white; font-family: \"Segoe UI\"; "
+            f"font-size: 13px; line-height: 1.3;'>{safe_text}</div>"
+        )
+        
+        self.bubble.setStyleSheet("""
+            QLabel {
+                background-color: #3030fc;
+                color: white;
+                border-radius: 14px;
+                padding: 8px 14px;
+                border: none;
+            }
+        """)
+        
+        # Ограничиваем максимальную ширину, чтобы не растягивалось на весь экран
+        self.bubble.setMaximumWidth(500)
+
+        msg_container.addWidget(self.bubble, 0, Qt.AlignmentFlag.AlignLeft)
+
+        if show_delivered:
+            self.delivered_label = QLabel("Доставлено")
+            self.delivered_label.setStyleSheet(
+                "color: #CCCCCC; font-size: 10px; border: none;"
+                "background: transparent; font-family: 'Segoe UI';"
+            )
+            self.delivered_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            msg_container.addWidget(
+                self.delivered_label, 0, Qt.AlignmentFlag.AlignHCenter
+            )
+
+        layout.addLayout(msg_container, 1)
+
+# ----------------------------------------------------------------------
 # ГЛАВНОЕ ОКНО ПРИЛОЖЕНИЯ
 # ----------------------------------------------------------------------
 class ModernPhotoshopWorkstation(QMainWindow):
@@ -3555,11 +3649,40 @@ class ModernPhotoshopWorkstation(QMainWindow):
         self.setWindowTitle("Photoshop WorkStation+ v5.2")
         self.setFixedSize(1480, 760)
 
-        icon_path = resource_path("iconapp_Photoshop Workstation+.png")
-        if not os.path.exists(icon_path):
-            icon_path = resource_path("iconapp_Photoshop_Workstation+.png")
-        if os.path.exists(icon_path):
-            self.setWindowIcon(QIcon(icon_path))
+        # --- Загрузка иконки и аватарки ---
+        self.chat_avatar_pixmap = None
+        possible_names = [
+            "avatarka3.jpg",
+            "iconapp_Photoshop Workstation+.png",
+            "iconapp.png"
+        ]
+        
+        # Ищем иконку везде, где только можно
+        found_icon_path = None
+        for name in possible_names:
+            # 1. В папке со скриптом (resource_path)
+            p = resource_path(name)
+            if os.path.exists(p):
+                found_icon_path = p
+                break
+            # 2. В текущей рабочей директории
+            p = os.path.join(os.getcwd(), name)
+            if os.path.exists(p):
+                found_icon_path = p
+                break
+            # 3. В папке с exe-файлом (если собрано в PyInstaller)
+            if getattr(sys, "frozen", False):
+                p = os.path.join(os.path.dirname(sys.executable), name)
+                if os.path.exists(p):
+                    found_icon_path = p
+                    break
+        
+        if found_icon_path:
+            self.setWindowIcon(QIcon(found_icon_path))
+            # Важно: QPixmap создается только после QApplication!
+            self.chat_avatar_pixmap = QPixmap(found_icon_path)
+        else:
+            print("Иконка не найдена! Аватарка будет заглушкой.")
 
         saved = load_config()
         self.default_schools_dir = saved.get("schools_dir", self.DEFAULT_PATHS["schools_dir"])
@@ -3600,6 +3723,12 @@ class ModernPhotoshopWorkstation(QMainWindow):
         self.btn_win_min = None
         self.btn_win_max = None
         self.btn_win_close = None
+
+        # Для индикатора "печатает..."
+        self._typing_widget = None
+        self._typing_hide_timer = QTimer(self)
+        self._typing_hide_timer.setSingleShot(True)
+        self._typing_hide_timer.timeout.connect(self._hide_typing_indicator)
 
         self.init_ui()
         self.center_window()
@@ -3700,7 +3829,6 @@ class ModernPhotoshopWorkstation(QMainWindow):
         self.refresh_school_list()
 
     def open_profile_dialog(self):
-        """Открывает диалог смены профиля путей (как «Сменить профиль» в настройках)."""
         default_paths = dict(self.DEFAULT_PATHS)
         alternate_paths = dict(self.ALTERNATE_PATHS)
         dlg = ResetPathsDialog(
@@ -3828,7 +3956,6 @@ class ModernPhotoshopWorkstation(QMainWindow):
             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
         )
 
-        # ★ Иконка "профиль" (user) — открывает диалог смены профиля путей
         btn_profile = CircleIconButton(
             icon_kind="user", style_key="user",
             tooltip="Сменить профиль путей",
@@ -3837,7 +3964,6 @@ class ModernPhotoshopWorkstation(QMainWindow):
         right_side_layout.addStretch()
         right_side_layout.addWidget(btn_profile)
 
-        # ★ Иконка "настройки" (шестерёнка)
         btn_paths = CircleIconButton(
             icon_kind="settings", style_key="settings",
             tooltip="Настройки путей",
@@ -3845,7 +3971,6 @@ class ModernPhotoshopWorkstation(QMainWindow):
         btn_paths.clicked.connect(self.open_path_settings)
         right_side_layout.addWidget(btn_paths)
 
-        # ★ Иконка "о программе" (лампочка)
         btn_about = CircleIconButton(
             icon_kind="about", style_key="about",
             tooltip="О программе",
@@ -3889,8 +4014,6 @@ class ModernPhotoshopWorkstation(QMainWindow):
         )
         text_color = "white"
         sub_bg = "#1A1A1A"
-        log_bg = "#171717"
-        log_fg = "#EEEEEE"
         header_color = "#00BFFF"
 
         # ==============================================================
@@ -4238,7 +4361,7 @@ class ModernPhotoshopWorkstation(QMainWindow):
         layout_scripts.addWidget(frame_footer)
 
         # ==============================================================
-        # КОЛОНКА 3 — СТАТУС ВЫПОЛНЕНИЯ
+        # КОЛОНКА 3 — СТАТУС ВЫПОЛНЕНИЯ (ЧАТ)
         # ==============================================================
         card_status = QFrame()
         card_status.setStyleSheet(card_style)
@@ -4254,18 +4377,46 @@ class ModernPhotoshopWorkstation(QMainWindow):
         self.lbl_status_header.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout_status.addWidget(self.lbl_status_header)
 
-        self.txt_log = QTextEdit()
-        self.txt_log.setFont(QFont("Consolas", 11))
-        self.txt_log.setStyleSheet(
-            f"QTextEdit {{ background-color: {log_bg}; color: {log_fg};"
-            f"border: 1px solid #2E2E2E; border-radius: 10px; padding: 10px; }}"
-            f"QTextEdit:focus {{ border: 1px solid #00BFFF; }}"
+        # --- Контейнер для чата (вместо QTextEdit) ---
+        self.chat_scroll = QScrollArea()
+        self.chat_scroll.setWidgetResizable(True)
+        self.chat_scroll.setStyleSheet("""
+            QScrollArea {
+                background-color: #171717;
+                border: 1px solid #2E2E2E;
+                border-radius: 10px;
+            }
+            QScrollBar:vertical {
+                background: #171717;
+                width: 8px;
+                margin: 4px 2px 4px 0px;
+                border-radius: 4px;
+            }
+            QScrollBar::handle:vertical {
+                background: #3A4150;
+                min-height: 20px;
+                border-radius: 4px;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+        """)
+        self.chat_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
         )
-        self.txt_log.setReadOnly(True)
-        self.txt_log.setSizePolicy(
+        self.chat_scroll.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
-        layout_status.addWidget(self.txt_log, 1)
+
+        self.chat_container = QWidget()
+        self.chat_container.setStyleSheet("background: transparent;")
+        self.chat_layout = QVBoxLayout(self.chat_container)
+        self.chat_layout.setContentsMargins(8, 8, 8, 8)
+        self.chat_layout.setSpacing(10)
+        self.chat_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+
+        self.chat_scroll.setWidget(self.chat_container)
+        layout_status.addWidget(self.chat_scroll, 1)
 
         self.progress_bar = YellowGlowProgressBar()
         layout_status.addWidget(self.progress_bar)
@@ -4298,26 +4449,19 @@ class ModernPhotoshopWorkstation(QMainWindow):
         columns_layout.addWidget(card_status, 1)
 
         main_layout.addLayout(columns_layout)
-        self.append_log("__INFO__Ожидание действий...")
+        
+        # --- Измененное начальное сообщение ---
+        # --- Отложенное приветствие ---
+        self._show_typing_indicator()
+        QTimer.singleShot(2000, self._show_welcome_message)
 
     def _open_github(self, url):
         QDesktopServices.openUrl(QUrl(url))
-
-    def _blink_status_indicator(self):
-        pass
-
-    def _start_blink(self):
-        pass
-
-    def _stop_blink(self):
-        pass
 
     def _update_percent_label(self, value):
         pass
 
     def _update_insert_qr_button_state(self):
-        """Кнопка «2. ВСТАВИТЬ QR-КОДЫ ВО ВСЕ КЛАССЫ 2030» активна только
-        при выбранной школе + отмеченном чекбоксе «Папка 2030»."""
         if not hasattr(self, "script_buttons") or not self.script_buttons:
             return
         enabled = bool(self.selected_school_name) and self.chk_2030.isChecked()
@@ -4576,31 +4720,103 @@ class ModernPhotoshopWorkstation(QMainWindow):
             self.qr_folder_path = dlg.qr_folder_path
             self._update_qr_labels()
 
+    # ==============================================================
+    # ЛОГИКА ЧАТА
+    # ==============================================================
     def append_log(self, text):
-        safe_text = text
-        if safe_text.startswith("__OK__"):
-            inner = safe_text[len("__OK__"):]
-            html_text = ("<span style='color:#7CFFCB; font-weight:bold;'>"
-                         "✅ " + html.escape(inner) + "</span>")
-        elif safe_text.startswith("__ERROR__"):
-            inner = safe_text[len("__ERROR__"):]
-            html_text = ("<span style='color:#FF8898; font-weight:bold;'>"
-                         "⛔ " + html.escape(inner) + "</span>")
-        elif safe_text.startswith("__INFO__"):
-            inner = safe_text[len("__INFO__"):]
-            html_text = ("<span style='color:#7CC4FF;'>"
-                         "🔄 " + html.escape(inner) + "</span>")
-        elif safe_text.startswith("__WARN__"):
-            inner = safe_text[len("__WARN__"):]
-            html_text = ("<span style='color:#FFC074; font-weight:bold;'>"
-                         "💡 " + html.escape(inner) + "</span>")
-        else:
-            html_text = ("<span style='color:#C8CEDA;'>"
-                         "• " + html.escape(safe_text) + "</span>")
-        self.txt_log.append(html_text)
+        clean_text = text
+        for prefix in ("__OK__", "__ERROR__", "__INFO__", "__WARN__"):
+            if clean_text.startswith(prefix):
+                clean_text = clean_text[len(prefix):]
+                break
+
+        msg_widget = ChatMessageWidget(
+            text=clean_text,
+            avatar_pixmap=self.chat_avatar_pixmap,
+            show_delivered=True
+        )
+        self.chat_layout.addWidget(msg_widget)
+        QTimer.singleShot(10, self._scroll_chat_to_bottom)
+
+    def _scroll_chat_to_bottom(self):
+        if hasattr(self, 'chat_scroll'):
+            self.chat_scroll.verticalScrollBar().setValue(
+                self.chat_scroll.verticalScrollBar().maximum()
+            )
 
     def clear_log(self):
-        self.txt_log.clear()
+        while self.chat_layout.count():
+            item = self.chat_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        self._typing_widget = None
+
+
+    def _show_welcome_message(self):
+        # Убираем "печатает..."
+        self._hide_typing_indicator()
+        # Показываем сообщение
+        self.append_log("__INFO__Жду твоей команды!")
+
+    def _show_typing_indicator(self):
+        if self._typing_widget is not None:
+            return
+
+        self._typing_widget = QWidget()
+        self._typing_widget.setStyleSheet("background: transparent;")
+        layout = QHBoxLayout(self._typing_widget)
+        layout.setContentsMargins(2, 2, 2, 2)
+        layout.setSpacing(8)
+        layout.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+
+        avatar = QLabel()
+        avatar.setFixedSize(30, 30)
+        avatar.setStyleSheet("border: none; background: transparent;")
+        if self.chat_avatar_pixmap and not self.chat_avatar_pixmap.isNull():
+            rounded = QPixmap(30, 30)
+            rounded.fill(Qt.GlobalColor.transparent)
+            p = QPainter(rounded)
+            p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            path = QPainterPath()
+            path.addEllipse(0, 0, 30, 30)
+            p.setClipPath(path)
+            p.drawPixmap(
+                0, 0,
+                self.chat_avatar_pixmap.scaled(
+                    30, 30,
+                    Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                    Qt.TransformationMode.SmoothTransformation
+                )
+            )
+            p.end()
+            avatar.setPixmap(rounded)
+        layout.addWidget(avatar, 0, Qt.AlignmentFlag.AlignTop)
+
+        typing_label = QLabel("печатает...")
+        typing_label.setStyleSheet(
+            "color: #E0E0E0; font-size: 12px; font-family: 'Segoe UI';"
+            "background: transparent; border: none;"
+            "padding-top: 6px;"
+        )
+        layout.addWidget(typing_label, 0, Qt.AlignmentFlag.AlignTop)
+        layout.addStretch(1)
+
+        self.chat_layout.addWidget(self._typing_widget)
+        QTimer.singleShot(10, self._scroll_chat_to_bottom)
+
+    def _hide_typing_indicator(self):
+        if self._typing_widget is not None:
+            self.chat_layout.removeWidget(self._typing_widget)
+            self._typing_widget.deleteLater()
+            self._typing_widget = None
+
+    def on_typing_signal(self, show):
+        if show:
+            self._show_typing_indicator()
+            self._typing_hide_timer.stop()
+        else:
+            self._typing_hide_timer.start(1100)
 
     def on_school_selected(self, text):
         if (text and text != "Выберите школу из списка..."
@@ -4663,7 +4879,6 @@ class ModernPhotoshopWorkstation(QMainWindow):
             self.lbl_count_info.update()
 
     def check_ready_to_run(self):
-        # Специальная проверка для insert_qr (кнопка 2)
         if self.selected_script_mode == "insert_qr":
             if not self.selected_school_name:
                 self.clear_log()
@@ -4737,15 +4952,19 @@ class ModernPhotoshopWorkstation(QMainWindow):
     def prepare_log_header(self, current_script_name):
         self.clear_log()
         if self.last_script_used and self.last_school_used:
-            self.append_log("__INFO__----------------------------------------")
-            self.append_log(f"__INFO__В прошлый раз: {self.last_script_used}")
-            self.append_log(f"__INFO__для школы: {self.last_school_used}")
-            self.append_log("__INFO__----------------------------------------")
-        self.append_log(f"__INFO__Запущен скрипт: {current_script_name}")
+            self.append_log("__INFO__— В прошлый раз: "
+                            f"{self.last_script_used} для {self.last_school_used}")
+        header_text = f"📝 Запущен скрипт: {current_script_name}\n"
         if self.selected_school_name:
-            self.append_log(f"__INFO__Школа: {self.selected_school_name}")
+            header_text += f"🗂️ Школа: {self.selected_school_name}\n"
         else:
-            self.append_log("__INFO__Школа: не выбрана (QR-режим)")
+            header_text += "Школа: не выбрана (QR-режим)\n"
+        if self.selected_script_mode == "batch_actions":
+            header_text += f"⚙️ Action Set: {self.batch_action_set}\n"
+            header_text += f"▶️ Actions: {self.batch_actions_text}"
+        else:
+            header_text = header_text.rstrip("\n")
+        self.append_log(header_text)
 
     def launch_worker(self):
         if not self.check_ready_to_run():
@@ -4778,6 +4997,7 @@ class ModernPhotoshopWorkstation(QMainWindow):
         self.worker.progress_signal.connect(self.on_worker_progress)
         self.worker.file_status_signal.connect(self.on_file_status_update)
         self.worker.log_signal.connect(self.append_log)
+        self.worker.typing_signal.connect(self.on_typing_signal)
         self.worker.finished_signal.connect(self.on_worker_finished)
         self.worker.start()
 
@@ -4792,14 +5012,10 @@ class ModernPhotoshopWorkstation(QMainWindow):
         self.progress_bar.setValue(val)
 
     def on_worker_finished(self, processed_count, script_title):
-        self.status_indicator.set_text("Готово!")
+        self.status_indicator.set_text("Завершено")
         self.progress_bar.stop_anim()
         self.progress_bar.setValue(100)
-        self.append_log("__INFO__========================================")
-        self.append_log(f"__OK__Вы использовали скрипт: {script_title}")
-        if self.selected_school_name:
-            self.append_log(f"__OK__Выбранная школа: {self.selected_school_name}")
-        self.append_log("__INFO__========================================")
+        # Строка с self.append_log("— Готово —") удалена
         self.last_script_used = script_title
         self.last_school_used = self.selected_school_name
         QTimer.singleShot(3000, self._restart_icon_after_finish)
@@ -4839,9 +5055,7 @@ class ModernPhotoshopWorkstation(QMainWindow):
 if __name__ == "__main__":
     app = QApplication(sys.argv)
 
-    icon_path = resource_path("iconapp_Photoshop Workstation+.png")
-    if not os.path.exists(icon_path):
-        icon_path = resource_path("iconapp_Photoshop_Workstation+.png")
+    icon_path = resource_path("avatarka2.jpg")
     if os.path.exists(icon_path):
         app.setWindowIcon(QIcon(icon_path))
 
