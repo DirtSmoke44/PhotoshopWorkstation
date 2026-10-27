@@ -4,7 +4,7 @@ import subprocess
 import tempfile
 import math
 import html
-import json   
+import json
 import win32com.client
 
 from PyQt6.QtWidgets import QTextBrowser
@@ -24,6 +24,7 @@ from PyQt6.QtWidgets import (
     QTextEdit, QProgressBar, QFrame, QDialog, QTextBrowser,
     QSizePolicy, QFileDialog, QListView, QLayout,
     QListWidget, QListWidgetItem, QAbstractItemView, QScrollArea,
+    QSlider,
 )
 from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PyQt6.QtMultimediaWidgets import QVideoWidget
@@ -1955,6 +1956,224 @@ class GradientLabel(QLabel):
 
 
 # ----------------------------------------------------------------------
+# ★★★ БЕГУЩАЯ СТРОКА ДЛЯ НАЗВАНИЯ ТРЕКА ★★★
+# ----------------------------------------------------------------------
+class MarqueeLabel(QLabel):
+    """Бегущая строка: текст плавно едет влево, затем вправо (пинг-понг)."""
+
+    def __init__(self, text="", color="#5CE8FF", parent=None):
+        super().__init__(parent)
+        self._full_text = text
+        self._color = QColor(color)
+        self._offset = 0.0
+        self._direction = -1  # -1 = влево, +1 = вправо
+        self._speed = 0.9       # пикселей за тик
+        self._pause_ticks = 0
+        self.setMinimumHeight(22)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setStyleSheet("border: none; background: transparent;")
+
+        self._timer = QTimer(self)
+        self._timer.setInterval(30)
+        self._timer.timeout.connect(self._tick)
+
+    def set_text(self, text):
+        self._full_text = text or ""
+        self._offset = 0.0
+        self._direction = -1
+        self._pause_ticks = 0
+        self.update()
+
+    def start(self):
+        if self._full_text and not self._timer.isActive():
+            self._timer.start()
+
+    def stop(self):
+        self._timer.stop()
+
+    def _tick(self):
+        if not self._full_text:
+            return
+        fm = self.fontMetrics()
+        text_w = fm.horizontalAdvance(self._full_text)
+        avail_w = max(1, self.width())
+        max_offset = max(0.0, text_w - avail_w)
+
+        if max_offset <= 0:
+            self._offset = 0.0
+            self.update()
+            return
+
+        if self._pause_ticks > 0:
+            self._pause_ticks -= 1
+            self.update()
+            return
+
+        self._offset += self._direction * self._speed
+        if self._offset <= 0:
+            self._offset = 0.0
+            self._direction = 1
+            self._pause_ticks = 25
+        elif self._offset >= max_offset:
+            self._offset = max_offset
+            self._direction = -1
+            self._pause_ticks = 25
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+
+        if not self._full_text:
+            painter.end()
+            return
+
+        painter.setPen(self._color)
+        painter.setFont(self.font())
+        rect = self.rect()
+
+        draw_rect = QRectF(
+            -self._offset,
+            0,
+            max(rect.width(), self.fontMetrics().horizontalAdvance(self._full_text) + 20),
+            rect.height(),
+        )
+        painter.drawText(
+            draw_rect,
+            Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+            self._full_text,
+        )
+        painter.end()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.update()
+
+
+# ----------------------------------------------------------------------
+# ★★★ КРУГЛАЯ КНОПКА ПЛЕЕРА (PLAY / PAUSE / NEXT / PREV / NOTE) ★★★
+# ----------------------------------------------------------------------
+class PlayerIconButton(QPushButton):
+    """Круглая кнопка с нарисованной иконкой для музыкального плеера."""
+
+    def __init__(self, icon_kind="play", accent="#5CE8FF",
+                 tooltip="", parent=None, size=38):
+        super().__init__(parent)
+        self.icon_kind = icon_kind
+        self.accent = QColor(accent)
+        self._bg = QColor("#141414")
+        self._border = QColor(accent)
+        self._hover_bg = QColor(accent)
+        self._hover_bg.setAlpha(40)
+        self._pressed = False
+        self.setFixedSize(size, size)
+        self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.setStyleSheet("QPushButton { background: transparent; border: none; }")
+        self.setFlat(True)
+        if tooltip:
+            self.setToolTip(tooltip)
+
+    def set_icon_kind(self, kind):
+        self.icon_kind = kind
+        self.update()
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        rect = QRectF(self.rect()).adjusted(1.5, 1.5, -1.5, -1.5)
+
+        if self.isDown():
+            p.setBrush(QColor(self.accent))
+            icon_color = QColor("#0A1A1A")
+            border = QColor(self.accent)
+        elif self.underMouse():
+            p.setBrush(self._hover_bg)
+            icon_color = QColor(self.accent)
+            border = QColor(self.accent)
+        else:
+            p.setBrush(self._bg)
+            icon_color = QColor(self.accent)
+            border = QColor(self.accent)
+
+        pen = QPen(border, 1.4)
+        p.setPen(pen)
+        p.drawEllipse(rect)
+
+        cx = rect.center().x()
+        cy = rect.center().y()
+        s = rect.width() / 2.0
+
+        p.setBrush(icon_color)
+        p.setPen(Qt.PenStyle.NoPen)
+
+        if self.icon_kind == "play":
+            path = QPainterPath()
+            path.moveTo(cx - s * 0.32, cy - s * 0.5)
+            path.lineTo(cx - s * 0.32, cy + s * 0.5)
+            path.lineTo(cx + s * 0.52, cy)
+            path.closeSubpath()
+            p.drawPath(path)
+        elif self.icon_kind == "pause":
+            bar_w = s * 0.26
+            bar_h = s * 0.9
+            gap = s * 0.22
+            p.drawRoundedRect(
+                QRectF(cx - gap - bar_w, cy - bar_h / 2, bar_w, bar_h), 2, 2
+            )
+            p.drawRoundedRect(
+                QRectF(cx + gap, cy - bar_h / 2, bar_w, bar_h), 2, 2
+            )
+        elif self.icon_kind == "next":
+            bar_w = s * 0.22
+            bar_h = s * 0.9
+            path = QPainterPath()
+            path.moveTo(cx - s * 0.55, cy - s * 0.45)
+            path.lineTo(cx - s * 0.55, cy + s * 0.45)
+            path.lineTo(cx + s * 0.15, cy)
+            path.closeSubpath()
+            p.drawPath(path)
+            p.drawRoundedRect(
+                QRectF(cx + s * 0.28, cy - bar_h / 2, bar_w, bar_h), 2, 2
+            )
+        elif self.icon_kind == "prev":
+            bar_w = s * 0.22
+            bar_h = s * 0.9
+            p.drawRoundedRect(
+                QRectF(cx - s * 0.28 - bar_w, cy - bar_h / 2, bar_w, bar_h), 2, 2
+            )
+            path = QPainterPath()
+            path.moveTo(cx + s * 0.55, cy - s * 0.45)
+            path.lineTo(cx + s * 0.55, cy + s * 0.45)
+            path.lineTo(cx - s * 0.15, cy)
+            path.closeSubpath()
+            p.drawPath(path)
+        elif self.icon_kind == "note":
+            head_r = s * 0.22
+            head_cx = cx - s * 0.22
+            head_cy = cy + s * 0.35
+            p.drawEllipse(QPointF(head_cx, head_cy), head_r, head_r)
+            stem_pen = QPen(icon_color, 2.2)
+            stem_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            p.setPen(stem_pen)
+            p.drawLine(
+                QPointF(head_cx + head_r * 0.9, head_cy),
+                QPointF(head_cx + head_r * 0.9, cy - s * 0.55),
+            )
+            flag_path = QPainterPath()
+            flag_path.moveTo(head_cx + head_r * 0.9, cy - s * 0.55)
+            flag_path.cubicTo(
+                cx + s * 0.4, cy - s * 0.45,
+                cx + s * 0.3, cy - s * 0.15,
+                cx + s * 0.05, cy - s * 0.05,
+            )
+            p.setBrush(icon_color)
+            p.setPen(Qt.PenStyle.NoPen)
+            p.drawPath(flag_path)
+        p.end()
+
+
+# ----------------------------------------------------------------------
 # ОКНО "О ПРОГРАММЕ"
 # ----------------------------------------------------------------------
 class AboutDialog(QDialog):
@@ -1980,7 +2199,8 @@ class AboutDialog(QDialog):
         <p><b>Новое в v5.2:</b> кнопки управления окном в стиле
         «Выход» / «Отменить выполнение» (фиолетовая / зелёная / красная),
         анимированные чекбоксы 1520 (бирюзовый) и 2030 (#F72F86)
-        с пульсацией и мерцанием.</p>
+        с пульсацией и мерцанием, а также встроенный музыкальный плеер
+        с перемоткой и регулировкой громкости.</p>
         <p><b>Версия:</b> v5.2</p>
         <p><b>Год выпуска:</b> 2026</p>
         <p><b>Разработчик:</b> DirtSmoke44 & JohnnySuon</p>
@@ -3618,6 +3838,7 @@ class ChatMessageWidget(QWidget):
         msg_container.setSizeConstraint(QVBoxLayout.SizeConstraint.SetMinimumSize)
         layout.addLayout(msg_container, 1)
 
+
 # ----------------------------------------------------------------------
 # ГЛАВНОЕ ОКНО ПРИЛОЖЕНИЯ
 # ----------------------------------------------------------------------
@@ -3724,6 +3945,21 @@ class ModernPhotoshopWorkstation(QMainWindow):
         self.audio_output_ambient = None
         self.video_widget_ambient = None
 
+        # --- Плеер ---
+        self.music_folder_path = saved.get("music_folder", "")
+        self.playlist = []              # список абсолютных путей mp3
+        self.current_track_index = -1
+        self.media_player_music = None
+        self.audio_output_music = None
+        self._music_loaded_folder = ""
+        self._player_note_label = None
+        self._marquee = None
+        self._btn_play = None
+        self._music_volume_slider = None
+        self._music_seek_slider = None
+        self._music_time_label = None
+        self._music_volume_pct_label = None
+
         self.script_border_widgets = []
         self.active_script_border = None
         self.script_buttons = []
@@ -3741,12 +3977,25 @@ class ModernPhotoshopWorkstation(QMainWindow):
         self.init_ui()
         self.center_window()
 
+        # Горячие клавиши медиаплеера
+        try:
+            from PyQt6.QtGui import QShortcut, QKeySequence
+            QShortcut(QKeySequence(Qt.Key.Key_MediaPlay), self,
+                      activated=self.play_pause_music)
+            QShortcut(QKeySequence(Qt.Key.Key_MediaNext), self,
+                      activated=self.next_music_track)
+            QShortcut(QKeySequence(Qt.Key.Key_MediaPrevious), self,
+                      activated=self.prev_music_track)
+        except Exception:
+            pass
+
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
             widget = self.childAt(event.position().toPoint())
             if widget is not None and isinstance(widget, (QPushButton, QComboBox,
                                                           QCheckBox, QTextEdit,
-                                                          QListWidget, QProgressBar)):
+                                                          QListWidget, QProgressBar,
+                                                          QSlider)):
                 return
             self.drag_pos = event.globalPosition().toPoint()
 
@@ -3831,6 +4080,7 @@ class ModernPhotoshopWorkstation(QMainWindow):
             "frame_dir": self.default_frame_dir,
             "scripts_dir": self.scripts_dir,
             "ambient_video": self.ambient_video_path,
+            "music_folder": self.music_folder_path,
         })
         self._refresh_frame_paths()
         self._load_ambient_video()
@@ -3860,11 +4110,359 @@ class ModernPhotoshopWorkstation(QMainWindow):
             "frame_dir": self.default_frame_dir,
             "scripts_dir": self.scripts_dir,
             "ambient_video": self.ambient_video_path,
+            "music_folder": self.music_folder_path,
         })
         self._refresh_frame_paths()
         self._load_ambient_video()
         self.refresh_school_list()
         self.append_log("__OK__Профиль путей успешно изменён.")
+
+    # ==============================================================
+    # МУЗЫКАЛЬНЫЙ ПЛЕЕР
+    # ==============================================================
+    def _init_music_player(self):
+        if self.media_player_music is not None:
+            return
+        self.media_player_music = QMediaPlayer(self)
+        self.audio_output_music = QAudioOutput(self)
+        self.media_player_music.setAudioOutput(self.audio_output_music)
+        self.audio_output_music.setVolume(0.7)
+        
+        self.media_player_music.mediaStatusChanged.connect(
+            self._on_music_status_changed
+        )
+        self.media_player_music.playbackStateChanged.connect(
+            self._on_music_playback_state_changed
+        )
+        self.media_player_music.positionChanged.connect(
+            self._on_music_position_changed
+        )
+        self.media_player_music.durationChanged.connect(
+            self._on_music_duration_changed
+        )
+
+    def _scan_music_folder(self, folder):
+        if not folder or not os.path.isdir(folder):
+            return []
+        tracks = []
+        for dp, dn, filenames in os.walk(folder):
+            for f in filenames:
+                if f.lower().endswith(".mp3"):
+                    tracks.append(os.path.join(dp, f))
+        tracks.sort(key=lambda p: os.path.basename(p).lower())
+        return tracks
+
+    def choose_music_folder(self):
+        self._init_music_player()
+        start_dir = self.music_folder_path if os.path.isdir(self.music_folder_path) else ""
+        folder = QFileDialog.getExistingDirectory(
+            self, "Выберите папку с музыкой (.mp3)", start_dir
+        )
+        if not folder:
+            return
+        self.music_folder_path = folder
+        self.playlist = self._scan_music_folder(folder)
+        self.current_track_index = -1
+        if self._marquee is not None:
+            if self.playlist:
+                self._marquee.set_text(
+                    f"♪  Загружено треков: {len(self.playlist)}  —  нажмите ▶"
+                )
+                self._marquee.start()
+            else:
+                self._marquee.set_text("♪  В папке не найдено .mp3 файлов")
+                self._marquee.start()
+        self.append_log(
+            f"__OK__Папка с музыкой выбрана: {folder} "
+            f"(треков: {len(self.playlist)})"
+        )
+        if self.playlist:
+            self.current_track_index = 0
+            self._update_music_marquee()
+            self._play_current_track()
+
+    def save_music_folder(self):
+        self._init_music_player()
+        if not self.music_folder_path or not os.path.isdir(self.music_folder_path):
+            self.append_log("__ERROR__Сначала выберите папку с музыкой.")
+            return
+        cfg = load_config()
+        cfg["music_folder"] = self.music_folder_path
+        if save_config(cfg):
+            self.append_log(
+                f"__OK__Папка с музыкой сохранена в конфиг: "
+                f"{self.music_folder_path}"
+            )
+        else:
+            self.append_log("__ERROR__Не удалось сохранить конфиг.")
+
+    def _update_music_marquee(self):
+        if self._marquee is None:
+            return
+        if (0 <= self.current_track_index < len(self.playlist)):
+            name = os.path.basename(self.playlist[self.current_track_index])
+            name_no_ext = os.path.splitext(name)[0]
+            self._marquee.set_text(
+                f"♪  Сейчас играет — {name_no_ext}   "
+                f"({self.current_track_index + 1}/{len(self.playlist)})"
+            )
+            self._marquee.start()
+        else:
+            if self.playlist:
+                self._marquee.set_text(
+                    f"♪  Треков в плейлисте: {len(self.playlist)}"
+                )
+            else:
+                self._marquee.set_text("♪  Музыка не загружена")
+            self._marquee.start()
+
+    def _format_time(self, ms):
+        if ms <= 0:
+            return "00:00"
+        s = ms // 1000
+        m = s // 60
+        s = s % 60
+        return f"{m:02d}:{s:02d}"
+
+    def _play_current_track(self):
+        self._init_music_player()
+        if not self.playlist:
+            self.append_log("__ERROR__Плейлист пуст. Выберите папку с .mp3.")
+            return
+        if not (0 <= self.current_track_index < len(self.playlist)):
+            self.current_track_index = 0
+        track = self.playlist[self.current_track_index]
+        if not os.path.exists(track):
+            self.append_log(f"__ERROR__Файл не найден: {track}")
+            return
+        self.media_player_music.setSource(QUrl.fromLocalFile(track))
+        self.media_player_music.play()
+        self._update_music_marquee()
+        if self._btn_play is not None:
+            self._btn_play.set_icon_kind("pause")
+
+    def play_pause_music(self):
+        self._init_music_player()
+        if not self.playlist:
+            self.append_log("__WARN__Плейлист пуст — выберите папку с музыкой.")
+            return
+        state = self.media_player_music.playbackState()
+        if state == QMediaPlayer.PlaybackState.PlayingState:
+            self.media_player_music.pause()
+        else:
+            if self.media_player_music.source().isEmpty():
+                self._play_current_track()
+            else:
+                self.media_player_music.play()
+
+    def next_music_track(self):
+        self._init_music_player()
+        if not self.playlist:
+            return
+        self.current_track_index = (self.current_track_index + 1) % len(self.playlist)
+        self._play_current_track()
+
+    def prev_music_track(self):
+        self._init_music_player()
+        if not self.playlist:
+            return
+        self.current_track_index = (self.current_track_index - 1) % len(self.playlist)
+        self._play_current_track()
+
+    def _on_music_status_changed(self, status):
+        if status == QMediaPlayer.MediaStatus.EndOfMedia:
+            self.next_music_track()
+
+    def _on_music_playback_state_changed(self, state):
+        if self._btn_play is not None:
+            if state == QMediaPlayer.PlaybackState.PlayingState:
+                self._btn_play.set_icon_kind("pause")
+            else:
+                self._btn_play.set_icon_kind("play")
+
+    def _on_music_position_changed(self, position):
+        if self._music_seek_slider is not None and self._music_seek_slider.isSliderDown() == False:
+            self._music_seek_slider.blockSignals(True)
+            self._music_seek_slider.setValue(position)
+            self._music_seek_slider.blockSignals(False)
+        
+        if self._music_time_label is not None:
+            dur = self.media_player_music.duration()
+            pos_str = self._format_time(position)
+            dur_str = self._format_time(dur)
+            self._music_time_label.setText(f"{pos_str} / {dur_str}")
+
+    def _on_music_duration_changed(self, duration):
+        if self._music_seek_slider is not None:
+            self._music_seek_slider.setMaximum(duration)
+        
+        if self._music_time_label is not None:
+            pos = self.media_player_music.position()
+            pos_str = self._format_time(pos)
+            dur_str = self._format_time(duration)
+            self._music_time_label.setText(f"{pos_str} / {dur_str}")
+
+    def _on_seek_slider_moved(self, position):
+        self.media_player_music.setPosition(position)
+
+    def _on_music_volume_changed(self, value):
+        if self.audio_output_music is not None:
+            self.audio_output_music.setVolume(value / 100.0)
+        if self._music_volume_pct_label is not None:
+            self._music_volume_pct_label.setText(f"{value}%")
+
+    def _build_music_player_panel(self):
+        """Создаёт КОМПАКТНЫЙ виджет плеера для шапки."""
+        self._init_music_player()
+
+        panel = QWidget()
+        panel.setStyleSheet("background: transparent; border: none;")
+        lay = QHBoxLayout(panel)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(8)
+        lay.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+
+        # --- 1. Бегущая строка (слева) ---
+        self._marquee = MarqueeLabel("♪  Музыка не загружена", color="#5CE8FF")
+        self._marquee.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+        self._marquee.setMinimumWidth(140) 
+        lay.addWidget(self._marquee, 1) # 1 = растягивать
+
+        # --- 2. Кнопки навигации (по центру) ---
+        nav_row = QHBoxLayout()
+        nav_row.setSpacing(4)
+        nav_row.setContentsMargins(0, 0, 0, 0)
+        nav_row.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+
+        btn_prev = PlayerIconButton("prev", accent="#7CC4FF", tooltip="Предыдущий трек", size=24)
+        btn_prev.clicked.connect(self.prev_music_track)
+        nav_row.addWidget(btn_prev)
+
+        self._btn_play = PlayerIconButton("play", accent="#5CFF8A",
+                                          tooltip="Play / Pause", size=30)
+        self._btn_play.clicked.connect(self.play_pause_music)
+        nav_row.addWidget(self._btn_play)
+
+        btn_next = PlayerIconButton("next", accent="#7CC4FF", tooltip="Следующий трек", size=24)
+        btn_next.clicked.connect(self.next_music_track)
+        nav_row.addWidget(btn_next)
+
+        lay.addLayout(nav_row)
+
+        # --- 3. Кнопки выбора/сохранения папки (справа) ---
+        folder_row = QHBoxLayout()
+        folder_row.setSpacing(4)
+        folder_row.setContentsMargins(0, 0, 0, 0)
+
+        btn_choose = QPushButton("📁")
+        btn_choose.setFixedSize(22, 22)
+        btn_choose.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        btn_choose.setToolTip("Выбрать папку с музыкой")
+        btn_choose.setStyleSheet(
+            "QPushButton { background-color: #10243A; color: #7CC4FF;"
+            "border: 1px solid #183A5A; border-radius: 11px;"
+            "font-size: 10px; padding: 0px; }"
+            "QPushButton:hover { background-color: #183A5A; border-color: #7CC4FF; }"
+        )
+        btn_choose.clicked.connect(self.choose_music_folder)
+        folder_row.addWidget(btn_choose)
+
+        btn_save = QPushButton("💾")
+        btn_save.setFixedSize(22, 22)
+        btn_save.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        btn_save.setToolTip("Сохранить папку в конфиг")
+        btn_save.setStyleSheet(
+            "QPushButton { background-color: #103A18; color: #88FFA8;"
+            "border: 1px solid #185A28; border-radius: 11px;"
+            "font-size: 10px; padding: 0px; }"
+            "QPushButton:hover { background-color: #185A28; border-color: #88FFA8; }"
+        )
+        btn_save.clicked.connect(self.save_music_folder)
+        folder_row.addWidget(btn_save)
+
+        lay.addLayout(folder_row)
+
+        # Загрузка плейлиста при старте
+        if self.music_folder_path and os.path.isdir(self.music_folder_path):
+            self.playlist = self._scan_music_folder(self.music_folder_path)
+            if self.playlist:
+                self.current_track_index = 0
+                self._update_music_marquee()
+            else:
+                if self._marquee is not None:
+                    self._marquee.set_text("♪  В папке нет .mp3")
+                    self._marquee.start()
+        else:
+            if self._marquee is not None:
+                self._marquee.set_text("♪  Музыка не загружена")
+                self._marquee.start()
+
+        return panel
+
+    def _build_music_player_bottom(self):
+        """Виджет с перемоткой и громкостью для низа панели."""
+        panel = QWidget()
+        panel.setStyleSheet("background: transparent; border: none;")
+        lay = QVBoxLayout(panel)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(4)
+
+        # --- 4. Ползунок перемотки и таймкод ---
+        seek_row = QHBoxLayout()
+        seek_row.setSpacing(6)
+        
+        self._music_time_label = QLabel("00:00 / 00:00")
+        self._music_time_label.setStyleSheet(
+            "color: #7CC4FF; font-family: Consolas; font-size: 10px; font-weight: bold; border: none;"
+        )
+        seek_row.addWidget(self._music_time_label)
+
+        self._music_seek_slider = QSlider(Qt.Orientation.Horizontal)
+        self._music_seek_slider.setRange(0, 100)
+        self._music_seek_slider.setFixedHeight(14)
+        self._music_seek_slider.setStyleSheet(
+            "QSlider::groove:horizontal { height: 4px; background: #1A2A34; border-radius: 2px; }"
+            "QSlider::sub-page:horizontal { background: #5CE8FF; border-radius: 2px; }"
+            "QSlider::handle:horizontal { background: #5CE8FF; width: 10px; margin: -4px 0; border-radius: 5px; }"
+            "QSlider::handle:horizontal:hover { background: #A8F0FF; }"
+        )
+        self._music_seek_slider.sliderMoved.connect(self._on_seek_slider_moved)
+        seek_row.addWidget(self._music_seek_slider, 1)
+        
+        lay.addLayout(seek_row)
+
+        # --- 5. Ползунок громкости и проценты ---
+        vol_row = QHBoxLayout()
+        vol_row.setSpacing(6)
+
+        vol_icon = QLabel("🔊")
+        vol_icon.setStyleSheet("font-size: 12px; border: none; background: transparent;")
+        vol_row.addWidget(vol_icon)
+
+        self._music_volume_slider = QSlider(Qt.Orientation.Horizontal)
+        self._music_volume_slider.setRange(0, 100)
+        self._music_volume_slider.setValue(70)
+        self._music_volume_slider.setFixedHeight(14)
+        self._music_volume_slider.setStyleSheet(
+            "QSlider::groove:horizontal { height: 4px; background: #1A2A34; border-radius: 2px; }"
+            "QSlider::sub-page:horizontal { background: #88FFA8; border-radius: 2px; }"
+            "QSlider::handle:horizontal { background: #88FFA8; width: 10px; margin: -4px 0; border-radius: 5px; }"
+            "QSlider::handle:horizontal:hover { background: #B0FFC8; }"
+        )
+        self._music_volume_slider.valueChanged.connect(self._on_music_volume_changed)
+        vol_row.addWidget(self._music_volume_slider, 1)
+
+        self._music_volume_pct_label = QLabel("70%")
+        self._music_volume_pct_label.setFixedWidth(32)
+        self._music_volume_pct_label.setStyleSheet(
+            "color: #88FFA8; font-family: Consolas; font-size: 10px; font-weight: bold; border: none;"
+        )
+        self._music_volume_pct_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        vol_row.addWidget(self._music_volume_pct_label)
+
+        lay.addLayout(vol_row)
+
+        return panel
 
     def _load_ambient_video(self):
         if self.media_player_ambient is None:
@@ -3910,6 +4508,9 @@ class ModernPhotoshopWorkstation(QMainWindow):
         main_layout.setContentsMargins(15, 15, 15, 15)
         main_layout.setSpacing(10)
 
+        # ==============================================================
+        # ШАПКА С ПЛЕЕРОМ
+        # ==============================================================
         header_frame = QFrame()
         header_frame.setStyleSheet(
             "QFrame { background-color: rgba(18, 18, 18, 210);"
@@ -3917,19 +4518,32 @@ class ModernPhotoshopWorkstation(QMainWindow):
         )
         header_layout = QHBoxLayout(header_frame)
         header_layout.setContentsMargins(20, 10, 20, 10)
-        header_layout.setSpacing(15)
+        header_layout.setSpacing(10)
 
-        SIDE_WIDTH = 200
+        HEADER_SIDE_WIDTH = 380
+
+        # --- ЛЕВАЯ ЧАСТЬ (Плеер) ---
         left_side = QWidget()
-        left_side.setFixedWidth(SIDE_WIDTH)
+        left_side.setFixedWidth(HEADER_SIDE_WIDTH)
+        left_side_layout = QVBoxLayout(left_side)
+        left_side_layout.setContentsMargins(0, 0, 0, 0)
+        left_side_layout.setSpacing(6)
+        left_side_layout.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        
+        music_panel = self._build_music_player_panel()
+        left_side_layout.addWidget(music_panel)
+        
+        music_bottom = self._build_music_player_bottom()
+        left_side_layout.addWidget(music_bottom)
+
         header_layout.addWidget(left_side)
 
+        # --- ЦЕНТР (Приветствие) ---
         welcome_container = QWidget()
         welcome_layout = QHBoxLayout(welcome_container)
-        welcome_layout.setContentsMargins(260, 0, 0, 0)
-        welcome_layout.setSpacing(5)
+        welcome_layout.setContentsMargins(0, 0, 0, 0)
+        welcome_layout.setSpacing(6)
         welcome_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        welcome_layout.addStretch(1)
 
         lbl_welcome_part1 = QLabel("Добро пожаловать в")
         font_welcome = QFont("Segoe UI", 13, QFont.Weight.Bold)
@@ -3952,11 +4566,11 @@ class ModernPhotoshopWorkstation(QMainWindow):
 
         welcome_layout.addWidget(lbl_welcome_part1)
         welcome_layout.addWidget(self.lbl_welcome_part2)
-        welcome_layout.addStretch(1)
         header_layout.addWidget(welcome_container, 1)
 
+        # --- ПРАВАЯ ЧАСТЬ (Кнопки управления) ---
         right_side = QWidget()
-        right_side.setFixedWidth(SIDE_WIDTH + 260)
+        right_side.setFixedWidth(HEADER_SIDE_WIDTH)
         right_side_layout = QHBoxLayout(right_side)
         right_side_layout.setContentsMargins(0, 0, 0, 0)
         right_side_layout.setSpacing(8)
@@ -3969,7 +4583,6 @@ class ModernPhotoshopWorkstation(QMainWindow):
             tooltip="Сменить профиль путей",
         )
         btn_profile.clicked.connect(self.open_profile_dialog)
-        right_side_layout.addStretch()
         right_side_layout.addWidget(btn_profile)
 
         btn_paths = CircleIconButton(
@@ -4004,6 +4617,9 @@ class ModernPhotoshopWorkstation(QMainWindow):
         header_layout.addWidget(right_side)
         main_layout.addWidget(header_frame)
 
+        # ==============================================================
+        # КОЛОНКИ
+        # ==============================================================
         columns_layout = QHBoxLayout()
         columns_layout.setSpacing(15)
 
@@ -4043,7 +4659,8 @@ class ModernPhotoshopWorkstation(QMainWindow):
         video_container.setStyleSheet(
             "QFrame { background-color: #000000; border: none; border-radius: 8px; }"
         )
-        video_container.setFixedHeight(340)
+        video_container.setMinimumHeight(250)
+        video_container.setMaximumHeight(340)
         video_container.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
         )
@@ -4064,11 +4681,11 @@ class ModernPhotoshopWorkstation(QMainWindow):
         )
         video_container_layout.addWidget(self.video_widget_ambient)
         layout_school.addWidget(video_container)
-        layout_school.addSpacing(10)
+        layout_school.addSpacing(15)
 
         lbl_select = QLabel("📂 Выберите школу:")
         lbl_select.setFont(QFont("Segoe UI", 11, QFont.Weight.Bold))
-        lbl_select.setStyleSheet("color: #8391fc; border: none;")
+        lbl_select.setStyleSheet("color: #8391fc; border: none; margin-bottom: 4px;")
         lbl_select.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout_school.addWidget(lbl_select)
 
@@ -4322,6 +4939,7 @@ class ModernPhotoshopWorkstation(QMainWindow):
         )
         self.btn_cancel.clicked.connect(self.cancel_process)
         layout_scripts.addWidget(self.btn_cancel)
+
         layout_scripts.addStretch(1)
 
         frame_footer = QFrame()
@@ -4464,7 +5082,6 @@ class ModernPhotoshopWorkstation(QMainWindow):
 
         main_layout.addLayout(columns_layout)
         
-        # --- Измененное начальное сообщение ---
         # --- Отложенное приветствие ---
         self._show_typing_indicator()
         QTimer.singleShot(2000, self._show_welcome_message)
@@ -5043,7 +5660,6 @@ class ModernPhotoshopWorkstation(QMainWindow):
         self.status_indicator.set_text("Завершено")
         self.progress_bar.stop_anim()
         self.progress_bar.setValue(100)
-        # Строка с self.append_log("— Готово —") удалена
         self.last_script_used = script_title
         self.last_school_used = self.selected_school_name
         QTimer.singleShot(3000, self._restart_icon_after_finish)
@@ -5073,6 +5689,18 @@ class ModernPhotoshopWorkstation(QMainWindow):
         QTimer.singleShot(3000, self._restart_icon_after_finish)
 
     def closeEvent(self, event):
+        # Останавливаем музыку
+        try:
+            if self.media_player_music is not None:
+                self.media_player_music.stop()
+        except Exception:
+            pass
+        try:
+            if self._marquee is not None:
+                self._marquee.stop()
+        except Exception:
+            pass
+
         if self.worker and self.worker.isRunning():
             self.worker.cancel()
             self.worker.wait(3000)
