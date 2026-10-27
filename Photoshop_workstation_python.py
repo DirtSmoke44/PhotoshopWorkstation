@@ -4856,16 +4856,20 @@ class ModernPhotoshopWorkstation(QMainWindow):
             self.combo_border.start_border()
             for btn in self.script_buttons:
                 mode = btn.property("mode")
-                if mode not in ("create_folders", "qr", "insert_qr"):
-                    btn.setEnabled(True)
+                if mode in ("qr",):
+                    btn.setEnabled(True)        # кнопка 4 — всегда доступна
+                elif mode not in ("create_folders", "insert_qr"):
+                    btn.setEnabled(True)        # кнопки 3, 5, 6
             self._update_insert_qr_button_state()
         else:
             if hasattr(self, "combo_border"):
                 self.combo_border.stop_border()
             for btn in self.script_buttons:
                 mode = btn.property("mode")
-                if mode not in ("create_folders", "qr", "insert_qr"):
-                    btn.setEnabled(False)
+                if mode in ("qr",):
+                    btn.setEnabled(True)        # кнопка 4 — всегда доступна
+                elif mode not in ("create_folders", "insert_qr"):
+                    btn.setEnabled(False)       # кнопки 3, 5, 6 — выключаем
             self.selected_school_name = ""
             self.selected_folder = ""
             self.selected_files = []
