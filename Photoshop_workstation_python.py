@@ -3270,7 +3270,7 @@ class WorkerThread(QThread):
                         pass
                     processed += 1
                     self.card_signal.emit(file_name, "done", "QR вставлен")
-                    self.log_signal.emit(f"QR-код успешно вставлен в {file_name}")
+                    self.log_signal.emit(f"✅ QR-код успешно вставлен в {file_name}")
                 except Exception as e:
                     errors += 1
                     self.log_signal.emit(f"__WARN__Ошибка при обработке {file_name}: {e}")
@@ -3579,6 +3579,8 @@ class ChatMessageWidget(QWidget):
         self.bubble = QLabel()
         self.bubble.setTextFormat(Qt.TextFormat.RichText)
         self.bubble.setWordWrap(True)
+        
+        # Текст будет автоматически переноситься и занимать всю доступную ширину
         self.bubble.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
 
         safe_text = html.escape(text).replace("\n", "<br>")
@@ -3596,10 +3598,10 @@ class ChatMessageWidget(QWidget):
                 border: none;
             }
         """)
-        
-        # Ограничиваем максимальную ширину, чтобы не растягивалось на весь экран
-        self.bubble.setMaximumWidth(500)
 
+        # Чтобы текст не растягивался на всю ширину, а переносился, 
+        # нужно позволить виджету сжиматься, но не растягиваться больше нужного
+        self.bubble.setMaximumWidth(650)  # Максимальная ширина пузыря сообщения
         msg_container.addWidget(self.bubble, 0, Qt.AlignmentFlag.AlignLeft)
 
         if show_delivered:
@@ -3613,6 +3615,7 @@ class ChatMessageWidget(QWidget):
                 self.delivered_label, 0, Qt.AlignmentFlag.AlignHCenter
             )
 
+        msg_container.setSizeConstraint(QVBoxLayout.SizeConstraint.SetMinimumSize)
         layout.addLayout(msg_container, 1)
 
 # ----------------------------------------------------------------------
@@ -4415,10 +4418,16 @@ class ModernPhotoshopWorkstation(QMainWindow):
 
         self.chat_container = QWidget()
         self.chat_container.setStyleSheet("background: transparent;")
+        # Жестко задаем, что контейнер должен подстраиваться под содержимое
+        self.chat_container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
+        
         self.chat_layout = QVBoxLayout(self.chat_container)
         self.chat_layout.setContentsMargins(8, 8, 8, 8)
         self.chat_layout.setSpacing(10)
         self.chat_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        # ★ ДОБАВЛЯЕМ РАСПОРКУ В КОНЕЦ: она будет съедать всё пустое место снизу, 
+        # прижимая сообщения к верху.
+        self.chat_layout.addStretch(1)
 
         self.chat_scroll.setWidget(self.chat_container)
         layout_status.addWidget(self.chat_scroll, 1)
@@ -4740,17 +4749,27 @@ class ModernPhotoshopWorkstation(QMainWindow):
             avatar_pixmap=self.chat_avatar_pixmap,
             show_delivered=True
         )
-        self.chat_layout.addWidget(msg_widget)
-        QTimer.singleShot(10, self._scroll_chat_to_bottom)
+        
+        # ★ ВАЖНО: вставляем виджет ПЕРЕД последней распоркой (addStretch)
+        # Иначе он улетит вниз
+        self.chat_layout.insertWidget(self.chat_layout.count() - 1, msg_widget)
+        
+        # Заставляем контейнер пересчитать свой размер
+        self.chat_container.adjustSize()
+        # Даем Qt немного времени (50 мс) на отрисовку нового сообщения, 
+        # чтобы правильно рассчитать высоту, и только потом скроллим
+        QTimer.singleShot(50, self._scroll_chat_to_bottom)
 
     def _scroll_chat_to_bottom(self):
         if hasattr(self, 'chat_scroll'):
+            # Прокручиваем в самый низ
             self.chat_scroll.verticalScrollBar().setValue(
                 self.chat_scroll.verticalScrollBar().maximum()
             )
 
     def clear_log(self):
-        while self.chat_layout.count():
+        # Удаляем все виджеты, КРОМЕ последней распорки
+        while self.chat_layout.count() > 1:
             item = self.chat_layout.takeAt(0)
             widget = item.widget()
             if widget is not None:
