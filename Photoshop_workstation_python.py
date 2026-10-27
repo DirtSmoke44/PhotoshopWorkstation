@@ -3219,9 +3219,7 @@ class WorkerThread(QThread):
         errors = 0
         template_path = os.path.join(self.scripts_dir, self.script_filename)
         if not os.path.exists(template_path):
-            self.log_signal.emit(
-                f"__ERROR__Шаблон JSX не найден: {template_path}"
-            )
+            self.log_signal.emit(f"__ERROR__Шаблон JSX не найден: {template_path}")
             self.finished_signal.emit(0, self.script_title)
             return
         school_dir = self.target_folder or self.school_name
@@ -3233,14 +3231,16 @@ class WorkerThread(QThread):
             file_name = os.path.basename(psd_path)
             self.file_status_signal.emit(f"Обновление {idx}/{total}", file_name)
             self.typing_signal.emit(True)
+            psd_doc = None
             try:
                 try:
                     _ = self.ps_app.Version
                 except Exception:
-                    self.log_signal.emit(
-                        "__ERROR__Photoshop перестал отвечать. Прерывание."
-                    )
+                    self.log_signal.emit("__ERROR__Photoshop перестал отвечать. Прерывание.")
                     break
+
+                # ★ ОТКРЫВАЕМ PSD ЧЕРЕЗ COM — без этого JSX не увидит документ
+                psd_doc = self.ps_app.Open(psd_path)
 
                 with open(template_path, "r", encoding="utf-8") as f:
                     content = f.read()
@@ -3249,13 +3249,8 @@ class WorkerThread(QThread):
                     return str(p).replace("\\", "\\\\").replace('"', '\\"')
 
                 content = content.replace("__QR_FOLDER_PATH__", esc(qr_path))
-                content = content.replace(
-                    "__PSD_FRAME_PATH__", esc(self.frame_2030_path or "")
-                )
                 content = content.replace("__PSD_PATH__", esc(psd_path))
-                content = content.replace(
-                    "__TARGET_FOLDER__", esc(os.path.dirname(psd_path))
-                )
+                content = content.replace("__TARGET_FOLDER__", esc(os.path.dirname(psd_path)))
                 content = content.replace("__SCHOOL_DIR__", esc(school_dir))
 
                 tmp_jsx = os.path.join(
@@ -3267,15 +3262,24 @@ class WorkerThread(QThread):
 
                 try:
                     self.ps_app.DoJavaScriptFile(tmp_jsx)
+                    # ★ JSX сам сохраняет targetDoc.save(), поэтому после вызова
+                    # закрываем без сохранения (чтобы не было двойного save)
+                    try:
+                        psd_doc.Close(1)  # 1 = DoNotSaveChanges
+                    except Exception:
+                        pass
                     processed += 1
                     self.card_signal.emit(file_name, "done", "QR вставлен")
                     self.log_signal.emit(f"QR-код успешно вставлен в {file_name}")
                 except Exception as e:
                     errors += 1
-                    self.log_signal.emit(
-                        f"__WARN__Ошибка при обработке {file_name}: {e}"
-                    )
+                    self.log_signal.emit(f"__WARN__Ошибка при обработке {file_name}: {e}")
                     self.card_signal.emit(file_name, "error", "Ошибка вставки QR")
+                    try:
+                        if psd_doc is not None:
+                            psd_doc.Close(1)
+                    except Exception:
+                        pass
                 finally:
                     try:
                         os.remove(tmp_jsx)
@@ -3283,16 +3287,17 @@ class WorkerThread(QThread):
                         pass
             except Exception as e:
                 errors += 1
-                self.log_signal.emit(
-                    f"__ERROR__Не удалось подготовить JSX для {file_name}: {e}"
-                )
+                self.log_signal.emit(f"__ERROR__Не удалось подготовить JSX для {file_name}: {e}")
+                try:
+                    if psd_doc is not None:
+                        psd_doc.Close(1)
+                except Exception:
+                    pass
             self.typing_signal.emit(False)
             self.progress_signal.emit(idx, total)
 
         if not self.is_cancelled:
-            self.log_signal.emit(
-                f"__INFO__📊 Итого: обработано {processed} из {total}, ошибок: {errors}"
-            )
+            self.log_signal.emit(f"__INFO__📊 Итого: обработано {processed} из {total}, ошибок: {errors}")
             self.finished_signal.emit(processed, self.script_title)
 
     def _run_smart_frames(self):
@@ -4237,7 +4242,7 @@ class ModernPhotoshopWorkstation(QMainWindow):
             ("1. СОЗДАТЬ ПАПКИ ШКОЛЫ",
              "create_folders", "", "1. Создать структуру папок", True),
             ("2. ВСТАВИТЬ QR-КОДЫ ВО ВСЕ КЛАССЫ 2030",
-             "insert_qr", "26_FAST_QR_Insert_Into_Frames.jsx", "2. QR-коды во все классы 2030", True),
+             "insert_qr", "26_QR_Insert_Into_Frames.jsx", "2. QR-коды во все классы 2030", True),
             ("3. БЫСТРЫЙ ЭКСПОРТ JPG (2_FAST_Export jpg)",
             "folder_fast", "2_FAST_Export jpg.jsx", "3. ЭКСПОРТ JPG", True),
             ("4. ДОБАВИТЬ QR-КОДЫ В РАМКУ 2030",
